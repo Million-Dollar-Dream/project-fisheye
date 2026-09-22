@@ -1,8 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../app/generated/prisma"
@@ -10,4 +8,69 @@ generator client {
 
 datasource db {
   provider = "sqlite"
+}
+
+model Pond {
+  id       Int    @id @default(autoincrement())
+  name     String
+  capacity Int
+
+  feedLogs        FeedLog[]
+  deadFishRecords DeadFishRecord[]
+  feedInventory   FeedInventory[]
+
+  @@map("ponds")
+}
+
+model FeedType {
+  id          Int    @id @default(autoincrement())
+  code        String @unique
+  costPerUnit Float  @map("cost_per_unit")
+  packingSize Float  @map("packing_size")
+
+  feedLogs FeedLog[]
+
+  @@map("feed_types")
+}
+
+model FeedLog {
+  id         Int      @id @default(autoincrement())
+  pondId     Int      @map("pond_id")
+  date       DateTime
+  feedTypeId Int      @map("feed_type_id")
+  quantity   Float
+
+  pond     Pond     @relation(fields: [pondId], references: [id])
+  feedType FeedType @relation(fields: [feedTypeId], references: [id])
+
+  @@index([pondId])
+  @@index([feedTypeId])
+  @@map("feed_logs")
+}
+
+model DeadFishRecord {
+  id        Int      @id @default(autoincrement())
+  pondId    Int      @map("pond_id")
+  date      DateTime
+  tailCount Int      @map("tail_count")
+  avgWeight Float    @map("avg_weight")
+  kg        Float
+
+  pond Pond @relation(fields: [pondId], references: [id])
+
+  @@index([pondId])
+  @@map("dead_fish_records")
+}
+
+model FeedInventory {
+  id            Int   @id @default(autoincrement())
+  pondId        Int   @map("pond_id")
+  packingSize   Float @map("packing_size")
+  gunnyQuantity Float @map("gunny_quantity")
+  totalWeightKg Float @map("total_weight_kg")
+
+  pond Pond @relation(fields: [pondId], references: [id])
+
+  @@index([pondId])
+  @@map("feed_inventory")
 }
