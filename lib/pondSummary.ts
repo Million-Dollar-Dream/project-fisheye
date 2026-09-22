@@ -15,6 +15,40 @@ export type PondSummary = {
   totalEstimatedWeightToHarvestKg: number;
 };
 
+export type PondMonthlyStats = {
+  feedUsedThisMonthKg: number;
+  deadFishThisMonth: number;
+};
+
+export async function getPondMonthlyStats(
+  pondId: number,
+): Promise<PondMonthlyStats> {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const [feedLogs, deadFishRecords] = await Promise.all([
+    prisma.feedLog.findMany({
+      where: { pondId, date: { gte: monthStart, lt: monthEnd } },
+      include: { feedType: true },
+    }),
+    prisma.deadFishRecord.findMany({
+      where: { pondId, date: { gte: monthStart, lt: monthEnd } },
+    }),
+  ]);
+
+  const feedUsedThisMonthKg = feedLogs.reduce(
+    (sum, log) => sum + log.quantity * log.feedType.packingSize,
+    0,
+  );
+  const deadFishThisMonth = deadFishRecords.reduce(
+    (sum, record) => sum + record.tailCount,
+    0,
+  );
+
+  return { feedUsedThisMonthKg, deadFishThisMonth };
+}
+
 export async function getPondSummary(pondId: number): Promise<PondSummary> {
   const [feedInventory, deadFishRecords] = await Promise.all([
     prisma.feedInventory.findMany({ where: { pondId } }),
