@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getPondSummary } from "@/lib/pondSummary";
 import { aggregateByMonth } from "@/lib/chartData";
 import BarChart from "./BarChart";
+import AddInventoryForm from "./AddInventoryForm";
 
 export const dynamic = "force-dynamic";
 
@@ -68,9 +69,17 @@ export default async function PondDetailPage({
           <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
             {pond.name}
           </h1>
-          <span className="text-sm text-zinc-500 dark:text-zinc-400">
-            Capacity {pond.capacity.toLocaleString()}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-zinc-500 dark:text-zinc-400">
+              Capacity {pond.capacity.toLocaleString()}
+            </span>
+            <Link
+              href="/log"
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white dark:bg-zinc-50 dark:text-zinc-900"
+            >
+              Log data
+            </Link>
+          </div>
         </header>
 
         <section className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -144,6 +153,7 @@ export default async function PondDetailPage({
               </tbody>
             </table>
           </div>
+          <AddInventoryForm pondId={pondId} />
         </section>
 
         <section className="mb-8">
