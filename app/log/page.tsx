@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import QuickEntryForm from "./QuickEntryForm";
+import SwitchRoleButton from "../SwitchRoleButton";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ export default async function LogPage() {
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
             Record feed used and dead fish for a pond.
           </p>
+          <div className="mt-2">
+            <SwitchRoleButton />
+          </div>
         </header>
         <QuickEntryForm ponds={ponds} feedTypes={feedTypes} />
       </main>

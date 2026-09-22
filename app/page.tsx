@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { getPondMonthlyStats, getPondSummary } from "@/lib/pondSummary";
+import SwitchRoleButton from "./SwitchRoleButton";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,9 @@ export default async function Home() {
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
               Feed usage, mortality, and harvest estimates across all ponds.
             </p>
+            <div className="mt-2">
+              <SwitchRoleButton />
+            </div>
           </div>
           <Link
             href="/log"
