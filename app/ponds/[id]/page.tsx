@@ -123,6 +123,18 @@ export default async function PondDetailPage({
         </section>
 
         <section className="mb-8">
+          <div className="rounded-lg border border-dashed border-zinc-300 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
+            <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+              AI feed recommendations
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+              Coming in a future phase: predictive feed recommendations based
+              on this pond&apos;s historical feed and mortality data.
+            </p>
+          </div>
+        </section>
+
+        <section className="mb-8">
           <h2 className="mb-2 text-lg font-medium text-zinc-900 dark:text-zinc-50">
             Feed inventory
           </h2>
