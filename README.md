@@ -24,6 +24,27 @@ See [`Screenshot_2026-09-20_at_10.23.41_PM.png`](./Screenshot_2026-09-20_at_10.2
 4. **UI Requirements** — track feed used, dead fish, potential harvest, inventory needed, sampling reminders
 5. **AI Decision Making** — predictive recommendations for farm owners (starting with feed), based on historical data
 
+## Running locally
+
+```bash
+npm install
+npx prisma migrate deploy   # create dev.db
+npx prisma db seed          # feed catalogue, Ponds 1–7, and Pond 1 imported from data/*.csv
+npm run dev                 # http://localhost:3000
+```
+
+Choose **Farm owner** for the dashboard or **Farm worker** for the phone daily log.
+
+## What the app does
+
+- **Spreadsheet import** (`/import`, `lib/import/`): reads the Fish Pond Performance Report CSV — every monthly block of daily feed type, bags and dead fish, the monthly cost tables and the average-weight summary. The sheet is cross-checked against its own totals before saving; mismatches (e.g. a mislabelled month heading, a cost table copied from the previous month, bags costed at the wrong pack size) are listed on the pond's *Data & imports* tab. Daily rows are treated as the source of truth. An import can be rolled back.
+- **Daily log** (`/log`): one screen per pond for workers on Android phones — feed type, bags, dead fish, optional note, and monthly sample weighing. One record per pond per day; saving again updates it.
+- **Owner dashboard** (`/`, `/ponds/[id]`): standing stock, feed cost, monthly feed and mortality, growth curve, the sheet's monthly summary recalculated from daily records, feed programme, and rule-based alerts (logging gaps, sampling due, mortality spikes, feed stock).
+- **Feed stock** (`/inventory`): stocktakes and deliveries; on-hand = last stocktake + deliveries − bags logged since, with days of cover.
+- **Export**: `/ponds/[id]/export` downloads the daily records as CSV.
+
+Harvest weight is estimated the way the spreadsheet does it (feed ÷ assumed FCR − mortality weight). Entering the stocked fish count on a pond also gives survival rate, biomass from sampling and actual FCR. Feed cost is stored on each record at the price in effect when it was saved.
+
 ## Sample Data
 
 [`(Project) Fish pond performance report  - Copy of 「Pond 1 」.csv`](<./(Project) Fish pond performance report  - Copy of 「Pond 1 」.csv>) is a raw export of the current manual tracking spreadsheet for Pond 1, including:

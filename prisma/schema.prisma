@@ -10,67 +10,121 @@ datasource db {
   provider = "sqlite"
 }
 
-model Pond {
-  id       Int    @id @default(autoincrement())
-  name     String
-  capacity Int
+// Calendar days are stored as UTC midnight of the farm-local date
+// (see lib/dates.ts) so a record never drifts across a day boundary.
 
-  feedLogs        FeedLog[]
-  deadFishRecords DeadFishRecord[]
-  feedInventory   FeedInventory[]
+model Pond {
+  id           Int       @id @default(autoincrement())
+  name         String    @unique
+  species      String?
+  // Start of the current culture cycle ("0 Month" in the spreadsheet).
+  stockedAt    DateTime? @map("stocked_at")
+  stockedCount Int?      @map("stocked_count")
+  // Feed conversion ratio used to estimate biomass from feed consumed.
+  assumedFcr   Float     @default(1.35) @map("assumed_fcr")
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  dailyLogs DailyLog[]
+  samplings Sampling[]
+  imports   ImportBatch[]
 
   @@map("ponds")
 }
 
 model FeedType {
-  id          Int    @id @default(autoincrement())
-  code        String @unique
-  costPerUnit Float  @map("cost_per_unit")
-  packingSize Float  @map("packing_size")
+  id         Int     @id @default(autoincrement())
+  code       String  @unique
+  packSizeKg Float   @map("pack_size_kg")
+  pricePerKg Float   @map("price_per_kg")
+  active     Boolean @default(true)
 
-  feedLogs FeedLog[]
+  dailyLogs      DailyLog[]
+  stockMovements StockMovement[]
 
   @@map("feed_types")
 }
 
-model FeedLog {
+// One row per pond per day, mirroring a row of the monthly feed log sheet.
+model DailyLog {
+  id            Int      @id @default(autoincrement())
+  pondId        Int      @map("pond_id")
+  date          DateTime
+  feedTypeId    Int?     @map("feed_type_id")
+  bags          Float    @default(0)
+  // Snapshots taken when the log is saved so later price or pack-size
+  // changes do not rewrite history.
+  feedKg        Float    @default(0) @map("feed_kg")
+  feedCostRm    Float    @default(0) @map("feed_cost_rm")
+  deadCount     Int      @default(0) @map("dead_count")
+  note          String?
+  recordedBy    String?  @map("recorded_by")
+  source        String   @default("app")
+  importBatchId Int?     @map("import_batch_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  pond        Pond         @relation(fields: [pondId], references: [id], onDelete: Cascade)
+  feedType    FeedType?    @relation(fields: [feedTypeId], references: [id])
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@unique([pondId, date])
+  @@index([feedTypeId])
+  @@index([importBatchId])
+  @@map("daily_logs")
+}
+
+// Average body weight from weighing a sample of fish.
+model Sampling {
+  id            Int      @id @default(autoincrement())
+  pondId        Int      @map("pond_id")
+  date          DateTime
+  avgWeightKg   Float    @map("avg_weight_kg")
+  sampleSize    Int?     @map("sample_size")
+  note          String?
+  recordedBy    String?  @map("recorded_by")
+  source        String   @default("app")
+  importBatchId Int?     @map("import_batch_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  pond        Pond         @relation(fields: [pondId], references: [id], onDelete: Cascade)
+  importBatch ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+
+  @@index([pondId, date])
+  @@index([importBatchId])
+  @@map("samplings")
+}
+
+// Farm-level feed store. "count" is a physical stocktake that resets the
+// running balance; "delivery" adds bags on top of it.
+model StockMovement {
+  id         Int      @id @default(autoincrement())
+  feedTypeId Int      @map("feed_type_id")
+  date       DateTime
+  kind       String
+  bags       Float
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  feedType FeedType @relation(fields: [feedTypeId], references: [id], onDelete: Cascade)
+
+  @@index([feedTypeId, date])
+  @@map("stock_movements")
+}
+
+model ImportBatch {
   id         Int      @id @default(autoincrement())
   pondId     Int      @map("pond_id")
-  date       DateTime
-  feedTypeId Int      @map("feed_type_id")
-  quantity   Float
+  fileName   String   @map("file_name")
+  importedAt DateTime @default(now()) @map("imported_at")
+  // JSON: parsed totals and reconciliation findings, shown on the pond page.
+  summary    String
+  findings   String
 
-  pond     Pond     @relation(fields: [pondId], references: [id])
-  feedType FeedType @relation(fields: [feedTypeId], references: [id])
-
-  @@index([pondId])
-  @@index([feedTypeId])
-  @@map("feed_logs")
-}
-
-model DeadFishRecord {
-  id        Int      @id @default(autoincrement())
-  pondId    Int      @map("pond_id")
-  date      DateTime
-  tailCount Int      @map("tail_count")
-  avgWeight Float    @map("avg_weight")
-  kg        Float
-
-  pond Pond @relation(fields: [pondId], references: [id])
+  pond      Pond       @relation(fields: [pondId], references: [id], onDelete: Cascade)
+  dailyLogs DailyLog[]
+  samplings Sampling[]
 
   @@index([pondId])
-  @@map("dead_fish_records")
-}
-
-model FeedInventory {
-  id            Int   @id @default(autoincrement())
-  pondId        Int   @map("pond_id")
-  packingSize   Float @map("packing_size")
-  gunnyQuantity Float @map("gunny_quantity")
-  totalWeightKg Float @map("total_weight_kg")
-
-  pond Pond @relation(fields: [pondId], references: [id])
-
-  @@index([pondId])
-  @@map("feed_inventory")
+  @@map("import_batches")
 }

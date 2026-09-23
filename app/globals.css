@@ -1,53 +1,167 @@
 @import "tailwindcss";
 
+/* Semantic design tokens. Components use these (bg-surface, text-ink-2,
+   border-line, ...) so light/dark themes only change here. */
 :root {
-  --background: #f7f8f5;
-  --foreground: #18201c;
-}
+  --canvas: #f4f6f7;
+  --surface: #ffffff;
+  --surface-2: #f8fafa;
+  --surface-3: #eef2f3;
+  --line: #e1e7e9;
+  --line-strong: #cbd5d8;
+  --ink: #0e1a1f;
+  --ink-2: #4a5a61;
+  --ink-3: #7d8b91;
+  --brand: #0b6e79;
+  --brand-strong: #075660;
+  --brand-soft: #e3f3f4;
+  --brand-ink: #ffffff;
+  --positive: #15803d;
+  --positive-soft: #e7f6ec;
+  --warning: #b45309;
+  --warning-soft: #fdf3e2;
+  --danger: #c2410c;
+  --danger-soft: #fdece4;
+  --info: #3659b8;
+  --info-soft: #e9eefb;
+  --sidebar: #0a2a31;
+  --sidebar-ink: #d7e6e8;
+  --sidebar-muted: #7fa0a6;
+  --sidebar-active: #134652;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Chart series: ordered for contrast between neighbours. */
+  --series-1: #0b6e79;
+  --series-2: #e08a2c;
+  --series-3: #5b6fd6;
+  --series-4: #3f9d5d;
+  --series-5: #c2527a;
+  --series-6: #8a6d3b;
+  --series-7: #2d9cb4;
+  --series-8: #7d5bc2;
+  --grid: #edf1f2;
+  --axis: #cfd8db;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #101512;
-    --foreground: #edf2ee;
+    --canvas: #0b1215;
+    --surface: #111b1f;
+    --surface-2: #152227;
+    --surface-3: #1b2b31;
+    --line: #22343a;
+    --line-strong: #2f454c;
+    --ink: #e8f0f2;
+    --ink-2: #a9bbc0;
+    --ink-3: #74898f;
+    --brand: #2fb5bf;
+    --brand-strong: #5ccbd3;
+    --brand-soft: #123237;
+    --brand-ink: #041a1d;
+    --positive: #4ade80;
+    --positive-soft: #10281a;
+    --warning: #fbbf24;
+    --warning-soft: #2c2210;
+    --danger: #fb923c;
+    --danger-soft: #311a10;
+    --info: #93a9f5;
+    --info-soft: #1a2240;
+    --sidebar: #081a1f;
+    --sidebar-ink: #d7e6e8;
+    --sidebar-muted: #6f9097;
+    --sidebar-active: #123a43;
+
+    --series-1: #2fb5bf;
+    --series-2: #f0a24a;
+    --series-3: #8b9cf0;
+    --series-4: #5cc27c;
+    --series-5: #e27aa0;
+    --series-6: #c9a56a;
+    --series-7: #62c6dc;
+    --series-8: #a98be0;
+    --grid: #1a282d;
+    --axis: #2c3f45;
   }
 }
 
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-ink: var(--brand-ink);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-ink: var(--sidebar-ink);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-active: var(--sidebar-active);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";
 }
 
 button,
 a,
 input,
-select {
+select,
+textarea,
+summary {
   -webkit-tap-highlight-color: transparent;
-}
-
-button,
-a,
-input,
-select {
   outline-color: transparent;
 }
 
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
-select:focus-visible {
-  outline: 2px solid #047857;
-  outline-offset: 3px;
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 ::selection {
-  background: #a7f3d0;
-  color: #064e3b;
+  background: var(--brand-soft);
+  color: var(--ink);
+}
+
+/* Hide number spinners; steppers are provided where they help. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+details > summary {
+  list-style: none;
+}
+details > summary::-webkit-details-marker {
+  display: none;
 }
