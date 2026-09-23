@@ -31,7 +31,7 @@ export function FeedTypeRow({
           aria-label="Feed code"
           className={cx(compactInput, "w-24 font-medium uppercase", errors.code && "border-danger")}
         />
-        <p className="mt-1 text-xs text-ink-3">{feedType.uses} days logged</p>
+        <p className="mt-1 text-xs text-ink-3">{feedType.uses} {feedType.uses === 1 ? "day" : "days"} logged</p>
       </td>
       <td className="px-2 py-2.5">
         <input
