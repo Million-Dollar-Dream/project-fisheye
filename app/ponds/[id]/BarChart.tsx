@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import type { MonthlyPoint } from "@/lib/chartData";
+import { ChartIcon } from "../../ui";
 
 type BarChartProps = {
   title: string;
@@ -26,11 +28,17 @@ export default function BarChart({
 
   if (data.length === 0) {
     return (
-      <div className="viz-root rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
-        <h3 className="mb-2 text-sm font-medium text-[var(--text-primary)]">
-          {title}
-        </h3>
-        <p className="text-sm text-[var(--text-secondary)]">No data yet.</p>
+      <div className="viz-root rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-5 shadow-sm">
+        <div className="flex items-center gap-2">
+          <ChartIcon className="size-4 text-[var(--series-1)]" />
+          <h3 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h3>
+        </div>
+        <div className="flex min-h-44 flex-col items-center justify-center text-center">
+          <p className="text-sm text-[var(--text-secondary)]">No data to chart yet.</p>
+          <Link href="/log" className="mt-3 text-sm font-medium text-[var(--series-1)] hover:underline">
+            Log the first entry
+          </Link>
+        </div>
         <style>{styles}</style>
       </div>
     );
@@ -49,14 +57,15 @@ export default function BarChart({
   });
 
   return (
-    <div className="viz-root rounded-lg border border-[var(--border)] bg-[var(--surface-1)] p-4">
-      <h3 className="mb-2 text-sm font-medium text-[var(--text-primary)]">
-        {title}
-      </h3>
+    <div className="viz-root rounded-2xl border border-[var(--border)] bg-[var(--surface-1)] p-5 shadow-sm">
+      <div className="mb-4 flex items-center gap-2">
+        <ChartIcon className="size-4 text-[var(--series-1)]" />
+        <h3 className="text-sm font-semibold text-[var(--text-primary)]">{title}</h3>
+      </div>
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role="img"
-        aria-label={title}
+        aria-label={`${title}: ${data.map((point) => `${point.label}, ${formatValue(point.value)}`).join("; ")}`}
         className="w-full"
       >
         {yTicks.map(({ value, y }) => (
@@ -164,37 +173,37 @@ export default function BarChart({
 const styles = `
 .viz-root {
   color-scheme: light;
-  --surface-1: #fcfcfb;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #898781;
-  --gridline: #e1e0d9;
-  --baseline: #c3c2b7;
-  --border: rgba(11,11,11,0.10);
-  --series-1: #2a78d6;
+  --surface-1: #ffffff;
+  --text-primary: #1c1917;
+  --text-secondary: #78716c;
+  --text-muted: #a8a29e;
+  --gridline: #f1f0ed;
+  --baseline: #d6d3d1;
+  --border: #e7e5e4;
+  --series-1: #047857;
 }
 @media (prefers-color-scheme: dark) {
   :root:where(:not([data-theme="light"])) .viz-root {
     color-scheme: dark;
-    --surface-1: #1a1a19;
+    --surface-1: rgba(255,255,255,0.05);
     --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --gridline: #2c2c2a;
-    --baseline: #383835;
+    --text-secondary: #a8a29e;
+    --text-muted: #78716c;
+    --gridline: rgba(255,255,255,0.07);
+    --baseline: rgba(255,255,255,0.15);
     --border: rgba(255,255,255,0.10);
-    --series-1: #3987e5;
+    --series-1: #34d399;
   }
 }
 :root[data-theme="dark"] .viz-root {
   color-scheme: dark;
-  --surface-1: #1a1a19;
+  --surface-1: rgba(255,255,255,0.05);
   --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --text-muted: #898781;
-  --gridline: #2c2c2a;
-  --baseline: #383835;
+  --text-secondary: #a8a29e;
+  --text-muted: #78716c;
+  --gridline: rgba(255,255,255,0.07);
+  --baseline: rgba(255,255,255,0.15);
   --border: rgba(255,255,255,0.10);
-  --series-1: #3987e5;
+  --series-1: #34d399;
 }
 `;
