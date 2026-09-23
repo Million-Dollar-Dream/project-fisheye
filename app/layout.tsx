@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -14,10 +14,18 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Fisheye",
+    default: "Fisheye · Pond Performance",
     template: "%s · Fisheye",
   },
-  description: "Simple pond health and feed tracking for aquaculture teams.",
+  description:
+    "Pond performance records for aquaculture farms: daily feed, mortality, sampling, feed stock and harvest estimates.",
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b1215" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -26,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col">{children}</body>
+      <body className="min-h-full">{children}</body>
     </html>
   );
 }

@@ -3,15 +3,14 @@ import { ROLE_COOKIE, isRole } from "@/lib/role";
 
 const PUBLIC_PATHS = ["/select-role"];
 
+function isWorkerPath(pathname: string) {
+  return pathname === "/log" || pathname.startsWith("/log/");
+}
+
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (
-    pathname.startsWith("/api") ||
-    pathname.startsWith("/_next") ||
-    PUBLIC_PATHS.includes(pathname) ||
-    /\.[a-zA-Z0-9]+$/.test(pathname)
-  ) {
+  if (PUBLIC_PATHS.includes(pathname) || /\.[a-zA-Z0-9]+$/.test(pathname)) {
     return NextResponse.next();
   }
 
@@ -20,13 +19,15 @@ export function proxy(request: NextRequest) {
   if (!isRole(role)) {
     const url = request.nextUrl.clone();
     url.pathname = "/select-role";
+    url.search = "";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (role === "worker" && pathname !== "/log") {
+  if (role === "worker" && !isWorkerPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/log";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 
@@ -34,5 +35,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
