@@ -20,6 +20,8 @@ model Pond {
   // Start of the current culture cycle ("0 Month" in the spreadsheet).
   stockedAt    DateTime? @map("stocked_at")
   stockedCount Int?      @map("stocked_count")
+  // Planned length of a culture cycle, stocking to harvest.
+  cycleMonths  Int       @default(8) @map("cycle_months")
   // Feed conversion ratio used to estimate biomass from feed consumed.
   assumedFcr   Float     @default(1.35) @map("assumed_fcr")
   active       Boolean   @default(true)
@@ -28,8 +30,37 @@ model Pond {
   dailyLogs DailyLog[]
   samplings Sampling[]
   imports   ImportBatch[]
+  cycles    PondCycle[]
 
   @@map("ponds")
+}
+
+// A finished culture cycle. The running cycle lives on the pond itself
+// (stockedAt / stockedCount); closing it moves those here with a snapshot
+// of its totals and leaves the pond empty until it is restocked.
+model PondCycle {
+  id           Int      @id @default(autoincrement())
+  pondId       Int      @map("pond_id")
+  number       Int
+  stockedAt    DateTime @map("stocked_at")
+  stockedCount Int?     @map("stocked_count")
+  endedAt      DateTime @map("ended_at")
+  // "harvested" or "lost" (the whole stock died).
+  outcome      String
+  harvestKg    Float?   @map("harvest_kg")
+  // Fish harvested, or fish lost in the final event for a loss.
+  fishCount    Int?     @map("fish_count")
+  cause        String?
+  note         String?
+  feedKg       Float    @map("feed_kg")
+  feedCostRm   Float    @map("feed_cost_rm")
+  deadCount    Int      @map("dead_count")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  pond Pond @relation(fields: [pondId], references: [id], onDelete: Cascade)
+
+  @@unique([pondId, number])
+  @@map("pond_cycles")
 }
 
 model FeedType {

@@ -1,18 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { dayKeyToDate, formatDay, todayKey } from "@/lib/dates";
-import { getFeedTypes, getPondDetail } from "@/lib/queries";
+import { dayKeyToDate, formatDay, formatMonth, todayKey } from "@/lib/dates";
+import { suggestStocking } from "@/lib/cycle";
+import { getFeedTypes, getPondDetail, getPondsWithMetrics } from "@/lib/queries";
+import { CycleStepper, StageBadge } from "@/app/components/cycle";
 import { ClipboardIcon, DownloadIcon } from "@/app/components/icons";
-import { Badge, PageHeader, Tabs, buttonClass } from "@/app/components/ui";
+import { Badge, PageHeader, Tabs, buttonClass, cx } from "@/app/components/ui";
 import PondOverview from "./PondOverview";
 import PondRecords from "./PondRecords";
 import PondData from "./PondData";
 import PondSettingsForm from "./PondSettingsForm";
+import PondCycle from "./PondCycle";
 
 export const dynamic = "force-dynamic";
 
-const VIEWS = ["overview", "records", "data", "settings"] as const;
+const VIEWS = ["overview", "cycle", "records", "data", "settings"] as const;
 type View = (typeof VIEWS)[number];
 
 export async function generateMetadata({ params }: PageProps<"/ponds/[id]">): Promise<Metadata> {
@@ -30,7 +33,8 @@ export default async function PondPage({ params, searchParams }: PageProps<"/pon
   if (!detail) notFound();
 
   const view: View = VIEWS.includes(query.view as View) ? (query.view as View) : "overview";
-  const { pond, metrics } = detail;
+  const { pond, metrics, cycle } = detail;
+  const running = cycle.state === "growing" || cycle.state === "ready";
   const warningCount = detail.imports.reduce(
     (sum, batch) => sum + batch.findings.filter((finding) => finding.severity === "warning").length,
     0,
@@ -52,16 +56,12 @@ export default async function PondPage({ params, searchParams }: PageProps<"/pon
         meta={
           <>
             {pond.species && <Badge tone="brand">{pond.species}</Badge>}
-            {metrics.stockedAt ? (
-              <Badge>Stocked {formatDay(dayKeyToDate(metrics.stockedAt))}</Badge>
-            ) : (
+            {cycle.state === "unset" ? (
               <Badge tone="warning">Stocking date not set</Badge>
+            ) : (
+              <StageBadge cycle={cycle} />
             )}
-            {metrics.daysOfCulture !== null && (
-              <Badge>
-                Day {metrics.daysOfCulture} · Month {metrics.cultureMonth}
-              </Badge>
-            )}
+            {metrics.stockedAt && <Badge>Stocked {formatDay(dayKeyToDate(metrics.stockedAt))}</Badge>}
             {metrics.currentFeedCode && <Badge>Feeding {metrics.currentFeedCode}</Badge>}
           </>
         }
@@ -81,10 +81,26 @@ export default async function PondPage({ params, searchParams }: PageProps<"/pon
         }
       />
 
+      <CycleStepper
+        cycle={cycle}
+        cycleMonths={pond.cycleMonths}
+        today={today}
+        fcr={metrics.realizedFcr}
+        targetFcr={pond.assumedFcr}
+        action={
+          view !== "cycle" && (
+            <Link href={`${base}?view=cycle`} scroll={false} className={cx(buttonClass(cycle.state === "ready" ? "primary" : "secondary", "sm"))}>
+              {cycle.state === "ready" ? "Record harvest" : "Harvest or loss"}
+            </Link>
+          )
+        }
+      />
+
       <Tabs
         active={view}
         items={[
           { key: "overview", label: "Overview", href: base },
+          { key: "cycle", label: running ? "Cycle" : "Cycle · empty", href: `${base}?view=cycle`, count: detail.cycles.length || undefined },
           { key: "records", label: "Daily records", href: `${base}?view=records`, count: metrics.totals.daysLogged },
           { key: "data", label: "Data & imports", href: `${base}?view=data`, count: warningCount || undefined },
           { key: "settings", label: "Settings", href: `${base}?view=settings` },
@@ -92,6 +108,7 @@ export default async function PondPage({ params, searchParams }: PageProps<"/pon
       />
 
       {view === "overview" && <PondOverview detail={detail} feedTypes={feedTypes} />}
+      {view === "cycle" && <PondCycle detail={detail} today={today} suggestion={running ? null : await stockingSuggestion(pond.id, pond.cycleMonths, today)} />}
       {view === "records" && (
         <PondRecords
           detail={detail}
@@ -110,10 +127,24 @@ export default async function PondPage({ params, searchParams }: PageProps<"/pon
             stockedAt: metrics.stockedAt,
             stockedCount: pond.stockedCount,
             assumedFcr: pond.assumedFcr,
+            cycleMonths: pond.cycleMonths,
             active: pond.active,
           }}
         />
       )}
     </>
   );
+}
+
+// "Stock in Oct to harvest Jun 27, when no other pond is planned."
+async function stockingSuggestion(pondId: number, cycleMonths: number, today: string) {
+  const others = (await getPondsWithMetrics(today)).filter((entry) => entry.pond.id !== pondId);
+  if (!others.some(({ cycle }) => cycle.state === "growing" || cycle.state === "ready")) return null;
+  const best = suggestStocking(others, cycleMonths, today);
+  const when = best.stockMonth === today.slice(0, 7) ? "this month" : `in ${formatMonth(best.stockMonth, "long")}`;
+  const clash =
+    best.others.length === 0
+      ? "when no other pond is planned to harvest"
+      : `alongside ${best.others.map((pond) => pond.name).join(", ")}`;
+  return `To keep supply even, stock ${when}: harvest would fall in ${formatMonth(best.harvestMonth, "long")}, ${clash}.`;
 }

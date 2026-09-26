@@ -99,7 +99,7 @@ export default async function DailyLogPage({ searchParams }: PageProps<"/log">) 
       </section>
 
       <ul className="space-y-2.5">
-        {ponds.map(({ pond, today: entry, previous }) => (
+        {ponds.map(({ pond, today: entry, previous, cycle }) => (
           <li key={pond.id}>
             <Link
               href={`/log/${pond.id}?date=${date}`}
@@ -126,6 +126,10 @@ export default async function DailyLogPage({ searchParams }: PageProps<"/log">) 
                       {formatNumber(entry.deadCount, 0)} dead
                       {entry.recordedBy && ` · by ${entry.recordedBy}`}
                     </>
+                  ) : cycle.state === "empty" ? (
+                    <span className={cycle.lastOutcome === "lost" ? "text-danger" : undefined}>
+                      Empty since {formatDay(dayKeyToDate(cycle.since), { year: false })} · no fish to feed
+                    </span>
                   ) : previous ? (
                     <>
                       Last: {previous.bags > 0 ? `${previous.feedType?.code} · ${formatBags(previous.bags)}` : "no feeding"}{" "}

@@ -1,7 +1,8 @@
-import { addDays, dateToDayKey, formatDay, dayKeyToDate } from "./dates";
+import { addDays, dateToDayKey, dayKeyToDate, daysBetween, formatDay, formatMonth } from "./dates";
 import { LOW_STOCK_DAYS, type StockLevel } from "./inventory";
 import type { PondWithMetrics } from "./queries";
 import { formatNumber } from "./format";
+import { fcrRating, harvestForecast, supplyGaps } from "./cycle";
 
 export type Insight = {
   severity: "critical" | "warning" | "info";
@@ -11,17 +12,79 @@ export type Insight = {
 };
 
 const SAMPLING_INTERVAL_DAYS = 30;
+const HARVEST_NOTICE_DAYS = 14;
+const EMPTY_NOTICE_DAYS = 30;
 
 // Rule-based checks an owner would otherwise do by scanning the sheet.
 export function buildInsights(
   ponds: PondWithMetrics[],
   stock: StockLevel[],
   findingsCount: number,
+  today: string,
 ): Insight[] {
   const insights: Insight[] = [];
 
-  for (const { pond, metrics, logs } of ponds) {
+  for (const { pond, metrics, logs, cycle } of ponds) {
     const href = `/ponds/${pond.id}`;
+    const cycleHref = `/ponds/${pond.id}?view=cycle`;
+
+    if (cycle.state === "empty") {
+      const days = daysBetween(cycle.since, today);
+      if (days >= EMPTY_NOTICE_DAYS) {
+        insights.push({
+          severity: "info",
+          title: `${pond.name}: empty for ${days} days`,
+          detail: `Last cycle ${cycle.lastOutcome === "lost" ? "was lost" : "was harvested"} ${formatDay(dayKeyToDate(cycle.since))}. Restock to keep supply going.`,
+          href: cycleHref,
+        });
+      }
+      continue;
+    }
+
+    // Recorded deaths reaching the stocked count means nothing is left.
+    if (pond.stockedCount && metrics.totals.deadCount >= pond.stockedCount) {
+      insights.push({
+        severity: "critical",
+        title: `${pond.name}: all stocked fish recorded dead`,
+        detail: `${formatNumber(metrics.totals.deadCount, 0)} dead of ${formatNumber(pond.stockedCount, 0)} stocked. Close the cycle as a loss so estimates and the harvest plan stop counting this pond.`,
+        href: cycleHref,
+      });
+    } else if (pond.stockedCount && metrics.totals.deadCount >= pond.stockedCount / 2) {
+      insights.push({
+        severity: "warning",
+        title: `${pond.name}: over half the stock recorded dead`,
+        detail: `${formatNumber(metrics.totals.deadCount, 0)} of ${formatNumber(pond.stockedCount, 0)} fish. If the pond is wiped out, close the cycle as a loss.`,
+        href: cycleHref,
+      });
+    }
+
+    if (metrics.realizedFcr !== null && fcrRating(metrics.realizedFcr, pond.assumedFcr) === "high") {
+      insights.push({
+        severity: "warning",
+        title: `${pond.name}: FCR ${metrics.realizedFcr.toFixed(2)}, above target ${pond.assumedFcr}`,
+        detail: `${formatNumber(metrics.totals.feedKg, 0)} kg of feed for about ${formatNumber(metrics.samplingBiomassKg ?? 0, 0)} kg of fish. Check for overfeeding, uneaten feed or unrecorded deaths, and reweigh a sample.`,
+        href,
+      });
+    }
+
+    if (cycle.state === "ready") {
+      insights.push({
+        severity: "warning",
+        title: `${pond.name}: ready to harvest`,
+        detail:
+          cycle.daysToHarvest === 0
+            ? "Planned harvest is today. Record the harvest when it's done."
+            : `${-cycle.daysToHarvest} days past the planned harvest (${formatDay(dayKeyToDate(cycle.plannedHarvestAt))}). Record the harvest when it's done.`,
+        href: cycleHref,
+      });
+    } else if (cycle.state === "growing" && cycle.daysToHarvest <= HARVEST_NOTICE_DAYS) {
+      insights.push({
+        severity: "info",
+        title: `${pond.name}: harvest in ${cycle.daysToHarvest} days`,
+        detail: `Planned for ${formatDay(dayKeyToDate(cycle.plannedHarvestAt))}. Line up buyers and labour.`,
+        href: cycleHref,
+      });
+    }
 
     if (metrics.lastLogDate && metrics.daysSinceLastLog !== null && metrics.daysSinceLastLog > 1) {
       insights.push({
@@ -82,6 +145,16 @@ export function buildInsights(
         href: "/inventory",
       });
     }
+  }
+
+  const gaps = supplyGaps(harvestForecast(ponds, today));
+  if (gaps.length > 0) {
+    insights.push({
+      severity: "warning",
+      title: `No harvest planned in ${gaps.length} ${gaps.length === 1 ? "month" : "months"}`,
+      detail: `${gaps.map((month) => formatMonth(month.monthKey, "long")).join(", ")}. Stagger the next stocking to keep fish available all year.`,
+      href: "/#cycles",
+    });
   }
 
   if (findingsCount > 0) {

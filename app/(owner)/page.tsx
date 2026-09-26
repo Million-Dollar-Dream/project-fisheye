@@ -2,11 +2,14 @@ import Link from "next/link";
 import { dayKeyToDate, formatDay, formatMonth, relativeDays, todayKey } from "@/lib/dates";
 import { formatAbw, formatBags, formatKg, formatNumber, formatRm } from "@/lib/format";
 import { buildInsights, type Insight } from "@/lib/insights";
+import { STAGES, harvestForecast, type CycleStatus, type StageKey } from "@/lib/cycle";
 import { getOpenFindings, getPondsWithMetrics, getRecentActivity, getStockLevels } from "@/lib/queries";
 import BarChart, { type BarDatum } from "../components/charts/BarChart";
+import { CycleBoard, CycleProgress, FcrValue, StageBadge } from "../components/cycle";
 import Sparkline from "../components/charts/Sparkline";
 import {
   AlertIcon,
+  CalendarIcon,
   ArrowRightIcon,
   ChartIcon,
   ChevronRightIcon,
@@ -22,8 +25,16 @@ import { Badge, Card, CardHeader, EmptyState, Legend, PageHeader, StatCard, butt
 
 export const dynamic = "force-dynamic";
 
-export default async function OverviewPage() {
+type StageFilter = StageKey | "empty";
+
+function stageFilterOf(cycle: CycleStatus): StageFilter | null {
+  if (cycle.state === "growing" || cycle.state === "ready") return cycle.stage.key;
+  return cycle.state === "empty" ? "empty" : null;
+}
+
+export default async function OverviewPage({ searchParams }: PageProps<"/">) {
   const today = todayKey();
+  const requestedStage = (await searchParams).stage;
   const [ponds, stock, batches, activity] = await Promise.all([
     getPondsWithMetrics(today),
     getStockLevels(today),
@@ -36,7 +47,19 @@ export default async function OverviewPage() {
     (sum, batch) => sum + batch.findings.filter((finding) => finding.severity === "warning").length,
     0,
   );
-  const insights = buildInsights(ponds, stock.levels, findingsCount);
+  const insights = buildInsights(ponds, stock.levels, findingsCount, today);
+  const forecast = harvestForecast(ponds, today);
+
+  const filters = [
+    ...STAGES.map((stage) => ({ key: stage.key as StageFilter, label: stage.label, color: stage.color })),
+    { key: "empty" as StageFilter, label: "Empty", color: "var(--line-strong)" },
+  ].map((filter) => ({ ...filter, count: ponds.filter(({ cycle }) => stageFilterOf(cycle) === filter.key).length }));
+  const activeFilter = filters.find((filter) => filter.key === requestedStage && filter.count > 0)?.key ?? null;
+  const tablePonds = activeFilter ? ponds.filter(({ cycle }) => stageFilterOf(cycle) === activeFilter) : ponds;
+
+  const nextHarvest = ponds
+    .flatMap(({ pond, cycle }) => (cycle.state === "growing" || cycle.state === "ready" ? [{ pond, cycle }] : []))
+    .sort((a, b) => a.cycle.plannedHarvestAt.localeCompare(b.cycle.plannedHarvestAt))[0];
 
   const totals = withData.reduce(
     (sum, { metrics }) => ({
@@ -102,7 +125,14 @@ export default async function OverviewPage() {
       <PageHeader
         eyebrow={formatDay(dayKeyToDate(today), { weekday: true })}
         title="Farm overview"
-        description={`${ponds.length} ponds registered · ${withData.length} with records. Figures are for the current culture cycle.`}
+        description={
+          `${ponds.length} ponds registered · ${withData.length} with records. Figures are for the current culture cycle.` +
+          (nextHarvest
+            ? nextHarvest.cycle.daysToHarvest > 0
+              ? ` Next harvest: ${nextHarvest.pond.name} in ${nextHarvest.cycle.daysToHarvest} days.`
+              : ` ${nextHarvest.pond.name} is ready to harvest.`
+            : "")
+        }
         actions={
           <>
             <Link href="/import" className={buttonClass("secondary")}>
@@ -152,6 +182,18 @@ export default async function OverviewPage() {
           sub={latest ? `${formatNumber(latest.dead, 0)} in ${formatMonth(latest.monthKey, "long")}` : undefined}
         />
       </section>
+
+      <div id="cycles" className="scroll-mt-6" />
+      <Card className="mb-6" as="section">
+        <CardHeader
+          icon={<CalendarIcon className="size-4" />}
+          title="Pond cycles"
+          description="Where each pond is in its cycle, and when fish will be ready. Faded bars are the months ahead."
+        />
+        <div className="mt-4">
+          <CycleBoard entries={ponds} forecast={forecast} today={today} />
+        </div>
+      </Card>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0">
@@ -226,8 +268,39 @@ export default async function OverviewPage() {
 
       <Card className="mt-6">
         <CardHeader title="Ponds" description="Current cycle performance for each pond." />
+        <nav aria-label="Filter by stage" className="mt-4 overflow-x-auto px-5">
+          <ul className="flex min-w-max gap-1.5">
+            {[{ key: null, label: "All", color: null, count: ponds.length }, ...filters].map((filter) => {
+              const active = filter.key === activeFilter;
+              const disabled = filter.key !== null && filter.count === 0;
+              return (
+                <li key={filter.key ?? "all"}>
+                  {disabled ? (
+                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-dashed border-line px-2.5 text-xs text-ink-3/70">
+                      {filter.label}
+                    </span>
+                  ) : (
+                    <Link
+                      href={filter.key ? `/?stage=${filter.key}` : "/"}
+                      scroll={false}
+                      aria-current={active ? "true" : undefined}
+                      className={cx(
+                        "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium",
+                        active ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface text-ink-2 hover:border-line-strong",
+                      )}
+                    >
+                      {filter.color && <span className="size-2 rounded-full" style={{ background: filter.color }} />}
+                      {filter.label}
+                      <span className="tabular-nums text-ink-3">{filter.count}</span>
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[860px] text-sm">
+          <table className="w-full min-w-[980px] text-sm">
             <thead>
               <tr className="border-y border-line bg-surface-2 text-left text-xs font-medium text-ink-3">
                 <th className="px-5 py-2.5 font-medium">Pond</th>
@@ -235,6 +308,11 @@ export default async function OverviewPage() {
                 <th className="px-3 py-2.5 text-right font-medium">Avg weight</th>
                 <th className="px-3 py-2.5 text-right font-medium">Est. stock</th>
                 <th className="px-3 py-2.5 text-right font-medium">Feed to date</th>
+                <th className="px-3 py-2.5 text-right font-medium">
+                  <abbr title="Feed conversion ratio: kg of feed per kg of fish, from the latest sampling" className="no-underline">
+                    FCR
+                  </abbr>
+                </th>
                 <th className="px-3 py-2.5 text-right font-medium">Dead</th>
                 <th className="px-3 py-2.5 font-medium">Daily feed, 60 days</th>
                 <th className="px-3 py-2.5 font-medium">Last entry</th>
@@ -242,7 +320,7 @@ export default async function OverviewPage() {
               </tr>
             </thead>
             <tbody>
-              {ponds.map(({ pond, metrics, logs }) => {
+              {tablePonds.map(({ pond, metrics, logs, cycle }) => {
                 const hasData = Boolean(metrics.lastLogDate);
                 const recent = logs
                   .map((log) => ({ key: log.date.toISOString().slice(0, 10), kg: log.feedKg }))
@@ -258,16 +336,8 @@ export default async function OverviewPage() {
                       <p className="text-xs text-ink-3">{pond.species ?? (hasData ? "Species not set" : "Not stocked")}</p>
                     </td>
                     <td className="px-3 py-3">
-                      {metrics.daysOfCulture !== null ? (
-                        <>
-                          <p className="font-medium tabular-nums text-ink">Day {metrics.daysOfCulture}</p>
-                          <p className="text-xs text-ink-3">
-                            {metrics.currentFeedCode ? `on ${metrics.currentFeedCode}` : `Month ${metrics.cultureMonth}`}
-                          </p>
-                        </>
-                      ) : (
-                        <span className="text-ink-3">—</span>
-                      )}
+                      <StageBadge cycle={cycle} />
+                      <CycleProgress cycle={cycle} today={today} />
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-ink">
                       {metrics.latestSampling ? formatAbw(metrics.latestSampling.avgWeightKg) : <span className="text-ink-3">—</span>}
@@ -277,6 +347,12 @@ export default async function OverviewPage() {
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-ink-2">
                       {hasData ? formatKg(metrics.totals.feedKg, 0) : <span className="text-ink-3">—</span>}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <FcrValue fcr={hasData ? metrics.realizedFcr : null} target={pond.assumedFcr} />
+                      {hasData && metrics.realizedFcr !== null && (
+                        <p className="text-xs text-ink-3">target {pond.assumedFcr}</p>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-ink-2">
                       {hasData ? formatNumber(metrics.totals.deadCount, 0) : <span className="text-ink-3">—</span>}

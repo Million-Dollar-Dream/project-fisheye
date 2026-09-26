@@ -13,6 +13,7 @@ type Pond = {
   stockedAt: string | null;
   stockedCount: number | null;
   assumedFcr: number;
+  cycleMonths: number;
   active: boolean;
 };
 
@@ -31,7 +32,11 @@ export default function PondSettingsForm({ pond }: { pond: Pond }) {
         <Field label="Species" htmlFor="species" hint="e.g. Red tilapia, Jade perch">
           <input id="species" name="species" defaultValue={pond.species ?? ""} maxLength={60} className={inputClass} />
         </Field>
-        <Field label="Stocking date" htmlFor="stockedAt" hint={errors.stockedAt ?? "Start of this culture cycle (month 0)."}>
+        <Field
+          label="Stocking date"
+          htmlFor="stockedAt"
+          hint={errors.stockedAt ?? "Start of this culture cycle (month 0). Use the Cycle tab to harvest or restock."}
+        >
           <input
             id="stockedAt"
             name="stockedAt"
@@ -69,6 +74,24 @@ export default function PondSettingsForm({ pond }: { pond: Pond }) {
             defaultValue={pond.assumedFcr}
             required
             className={cx(inputClass, errors.assumedFcr && "border-danger")}
+          />
+        </Field>
+        <Field
+          label="Cycle length (months)"
+          htmlFor="cycleMonths"
+          hint={errors.cycleMonths ?? "Stocking to harvest. Sets the planned harvest date and growth stages."}
+        >
+          <input
+            id="cycleMonths"
+            name="cycleMonths"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={36}
+            step={1}
+            defaultValue={pond.cycleMonths}
+            required
+            className={cx(inputClass, errors.cycleMonths && "border-danger")}
           />
         </Field>
         <div className="flex items-end">

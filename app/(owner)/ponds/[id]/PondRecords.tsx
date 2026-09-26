@@ -21,9 +21,10 @@ export default function PondRecords({
   month?: string;
   today: string;
 }) {
-  const { pond, logs, metrics } = detail;
+  const { pond, allLogs: logs, metrics } = detail;
   const currentMonth = today.slice(0, 7);
-  const months = [...new Set([...metrics.months.map((month) => month.monthKey), currentMonth])].sort();
+  // Includes months from earlier cycles so their records stay reachable.
+  const months = [...new Set([...logs.map((log) => monthKeyOf(log.date)), currentMonth])].sort();
   const month =
     requestedMonth && months.includes(requestedMonth)
       ? requestedMonth
