@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireOwner } from "@/lib/session";
-import { dayKeyToDate, isDayKey, todayKey } from "@/lib/dates";
+import { dateToDayKey, dayKeyToDate, isDayKey, todayKey } from "@/lib/dates";
 import { PondReportError, normalizeFeedCode, parsePondReport } from "@/lib/import/pondReport";
 import { buildImportPlan } from "@/lib/import/plan";
 import { commitImportPlan } from "@/lib/import/commit";
@@ -40,11 +40,19 @@ export async function updatePond(_prev: FormState, formData: FormData): Promise<
   const stockedAt = text(formData, "stockedAt");
   const stockedCount = optionalNumber(formData, "stockedCount");
   const assumedFcr = optionalNumber(formData, "assumedFcr");
+  const cycleMonths = optionalNumber(formData, "cycleMonths");
 
   const errors: Record<string, string> = {};
   if (!name) errors.name = "Enter a pond name.";
   else if (await nameTaken(name, id)) errors.name = "Another pond already has this name.";
   if (stockedAt && (!isDayKey(stockedAt) || stockedAt > todayKey())) errors.stockedAt = "Enter a valid past date.";
+  else if (stockedAt) {
+    const lastEnd = await lastCycleEnd(id);
+    if (lastEnd && stockedAt <= lastEnd) errors.stockedAt = `Must be after the last cycle ended (${lastEnd}).`;
+  }
+  if (cycleMonths === null || !Number.isInteger(cycleMonths) || cycleMonths < 1 || cycleMonths > 36) {
+    errors.cycleMonths = "Whole months, usually 6 to 10.";
+  }
   if (stockedCount !== null && (!Number.isInteger(stockedCount) || stockedCount < 1)) {
     errors.stockedCount = "Enter a whole number of fish, or leave blank.";
   }
@@ -59,6 +67,7 @@ export async function updatePond(_prev: FormState, formData: FormData): Promise<
       stockedAt: stockedAt ? dayKeyToDate(stockedAt) : null,
       stockedCount: stockedCount ?? null,
       assumedFcr: assumedFcr as number,
+      cycleMonths: cycleMonths as number,
       active: formData.get("active") === "on",
     },
   });
@@ -204,4 +213,117 @@ export async function importSpreadsheet(_prev: FormState, formData: FormData): P
 
   revalidatePath("/", "layout");
   redirect(`/ponds/${result.pondId}?view=data&imported=${result.batchId}`);
+}
+
+async function lastCycleEnd(pondId: number) {
+  const last = await prisma.pondCycle.findFirst({ where: { pondId }, orderBy: { number: "desc" } });
+  return last ? dateToDayKey(last.endedAt) : null;
+}
+
+// Ends the running cycle as a harvest or a total loss. Its totals are
+// snapshotted and the pond is left empty until it is restocked.
+export async function closeCycle(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireOwner();
+  const pondId = Number(formData.get("pondId"));
+  const outcome = text(formData, "outcome");
+  const endedAt = text(formData, "endedAt");
+  const harvestKg = optionalNumber(formData, "harvestKg");
+  const fishCount = optionalNumber(formData, "fishCount");
+  const cause = text(formData, "cause", 60) || null;
+  const note = text(formData, "note", 300) || null;
+
+  const pond = await prisma.pond.findUnique({ where: { id: pondId } });
+  if (!pond?.stockedAt) return { status: "error", message: "This pond has no running cycle to close." };
+  const stockedKey = dateToDayKey(pond.stockedAt);
+
+  const errors: Record<string, string> = {};
+  if (outcome !== "harvested" && outcome !== "lost") errors.outcome = "Choose harvested or lost.";
+  if (!isDayKey(endedAt) || endedAt > todayKey() || endedAt < stockedKey) {
+    errors.endedAt = "Enter a date between stocking and today.";
+  }
+  if (outcome === "harvested" && (harvestKg === null || !(harvestKg > 0 && harvestKg <= 1_000_000))) {
+    errors.harvestKg = "Enter the harvested weight in kg.";
+  }
+  if (fishCount !== null && (!Number.isInteger(fishCount) || fishCount < 0)) {
+    errors.fishCount = "Enter a whole number, or leave blank.";
+  }
+  if (outcome === "lost" && !cause) errors.cause = "Choose what happened.";
+  if (Object.keys(errors).length > 0) return invalid(errors);
+
+  await prisma.$transaction(async (tx) => {
+    const logs = await tx.dailyLog.aggregate({
+      where: { pondId, date: { gte: pond.stockedAt!, lte: dayKeyToDate(endedAt) } },
+      _sum: { feedKg: true, feedCostRm: true, deadCount: true },
+    });
+    const last = await tx.pondCycle.findFirst({ where: { pondId }, orderBy: { number: "desc" } });
+    await tx.pondCycle.create({
+      data: {
+        pondId,
+        number: (last?.number ?? 0) + 1,
+        stockedAt: pond.stockedAt!,
+        stockedCount: pond.stockedCount,
+        endedAt: dayKeyToDate(endedAt),
+        outcome,
+        harvestKg: outcome === "harvested" ? harvestKg : 0,
+        fishCount,
+        cause: outcome === "lost" ? cause : null,
+        note,
+        feedKg: logs._sum.feedKg ?? 0,
+        feedCostRm: logs._sum.feedCostRm ?? 0,
+        deadCount: logs._sum.deadCount ?? 0,
+      },
+    });
+    await tx.pond.update({ where: { id: pondId }, data: { stockedAt: null, stockedCount: null } });
+  });
+
+  revalidatePath("/", "layout");
+  return {
+    status: "success",
+    message: outcome === "lost" ? "Cycle closed as a loss. The pond is empty until restocked." : "Harvest recorded.",
+  };
+}
+
+export async function startCycle(_prev: FormState, formData: FormData): Promise<FormState> {
+  await requireOwner();
+  const pondId = Number(formData.get("pondId"));
+  const stockedAt = text(formData, "stockedAt");
+  const stockedCount = optionalNumber(formData, "stockedCount");
+
+  const pond = await prisma.pond.findUnique({ where: { id: pondId } });
+  if (!pond) return { status: "error", message: "Pond not found." };
+  if (pond.stockedAt) return { status: "error", message: "Close the running cycle before starting a new one." };
+
+  const errors: Record<string, string> = {};
+  const lastEnd = await lastCycleEnd(pondId);
+  if (!isDayKey(stockedAt) || stockedAt > todayKey()) errors.stockedAt = "Enter a valid past date.";
+  else if (lastEnd && stockedAt <= lastEnd) errors.stockedAt = `Must be after the last cycle ended (${lastEnd}).`;
+  if (stockedCount !== null && (!Number.isInteger(stockedCount) || stockedCount < 1)) {
+    errors.stockedCount = "Enter a whole number of fish, or leave blank.";
+  }
+  if (Object.keys(errors).length > 0) return invalid(errors);
+
+  await prisma.pond.update({
+    where: { id: pondId },
+    data: { stockedAt: dayKeyToDate(stockedAt), stockedCount: stockedCount ?? null },
+  });
+  revalidatePath("/", "layout");
+  return { status: "success", message: "New cycle started." };
+}
+
+// Undoes the most recent close, for when a cycle was ended by mistake.
+export async function reopenLastCycle(formData: FormData) {
+  await requireOwner();
+  const pondId = Number(formData.get("pondId"));
+  const pond = await prisma.pond.findUnique({ where: { id: pondId } });
+  const last = await prisma.pondCycle.findFirst({ where: { pondId }, orderBy: { number: "desc" } });
+  if (!pond || pond.stockedAt || !last) return;
+
+  await prisma.$transaction([
+    prisma.pond.update({
+      where: { id: pondId },
+      data: { stockedAt: last.stockedAt, stockedCount: last.stockedCount },
+    }),
+    prisma.pondCycle.delete({ where: { id: last.id } }),
+  ]);
+  revalidatePath("/", "layout");
 }

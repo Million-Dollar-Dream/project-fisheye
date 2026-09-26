@@ -51,6 +51,13 @@ export function addMonths(monthKey: string, months: number): string {
   return `${Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
 }
 
+// Same day of the month, clamped to the month's last day (31 Jan + 1 → 28 Feb).
+export function addMonthsToDay(key: string, months: number): string {
+  const monthKey = addMonths(key.slice(0, 7), months);
+  const day = Math.min(Number(key.slice(8, 10)), daysInMonth(monthKey));
+  return `${monthKey}-${String(day).padStart(2, "0")}`;
+}
+
 export function monthsBetween(fromMonthKey: string, toMonthKey: string): number {
   const [fy, fm] = fromMonthKey.split("-").map(Number);
   const [ty, tm] = toMonthKey.split("-").map(Number);

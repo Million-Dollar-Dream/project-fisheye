@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { dateToDayKey, dayKeyToDate, todayKey } from "./dates";
 import { computePondMetrics, type PondMetrics } from "./metrics";
+import { currentCycleStart, getCycleStatus } from "./cycle";
 import { computeStockLevels } from "./inventory";
 import type { Finding } from "./import/pondReport";
 
@@ -26,14 +27,26 @@ export async function getPondsWithMetrics(today = todayKey()) {
     include: {
       dailyLogs: { include: { feedType: { select: { code: true } } } },
       samplings: true,
+      cycles: { orderBy: { number: "desc" }, take: 1 },
     },
   });
 
-  return ponds.map(({ dailyLogs, samplings, ...pond }) => ({
-    pond,
-    logs: dailyLogs,
-    metrics: computePondMetrics(pond, dailyLogs, samplings, today),
-  }));
+  return ponds.map(({ dailyLogs, samplings, cycles, ...pond }) => {
+    // Figures cover the running cycle only; earlier cycles are closed out.
+    const start = currentCycleStart(pond, cycles[0]);
+    const logs = inCycle(dailyLogs, start);
+    return {
+      pond,
+      logs,
+      lastCycle: cycles[0] ?? null,
+      cycle: getCycleStatus(pond, cycles[0], today),
+      metrics: computePondMetrics(pond, logs, inCycle(samplings, start), today),
+    };
+  });
+}
+
+function inCycle<T extends { date: Date }>(rows: T[], start: string | null) {
+  return start ? rows.filter((row) => dateToDayKey(row.date) >= start) : rows;
 }
 
 export type PondWithMetrics = Awaited<ReturnType<typeof getPondsWithMetrics>>[number];
@@ -95,17 +108,25 @@ export async function getPondDetail(pondId: number, today = todayKey()) {
       },
       samplings: { orderBy: { date: "asc" } },
       imports: { orderBy: { importedAt: "desc" } },
+      cycles: { orderBy: { number: "desc" } },
     },
   });
   if (!pond) return null;
 
-  const { dailyLogs, samplings, imports, ...rest } = pond;
-  const metrics: PondMetrics = computePondMetrics(rest, dailyLogs, samplings, today);
+  const { dailyLogs, samplings, imports, cycles, ...rest } = pond;
+  const start = currentCycleStart(rest, cycles[0]);
+  const cycleLogs = inCycle(dailyLogs, start);
+  const cycleSamplings = inCycle(samplings, start);
+  const metrics: PondMetrics = computePondMetrics(rest, cycleLogs, cycleSamplings, today);
 
   return {
     pond: rest,
-    logs: dailyLogs,
-    samplings,
+    // Every record, so the daily records view can browse earlier cycles.
+    allLogs: dailyLogs,
+    logs: cycleLogs,
+    samplings: cycleSamplings,
+    cycles,
+    cycle: getCycleStatus(rest, cycles[0], today),
     imports: imports.map((batch) => ({
       ...batch,
       findings: JSON.parse(batch.findings) as Finding[],
@@ -127,12 +148,13 @@ export async function getWorkerDay(dayKey: string) {
         take: 2,
         include: { feedType: { select: { code: true } } },
       },
+      cycles: { orderBy: { number: "desc" }, take: 1 },
     },
   });
 
-  return ponds.map(({ dailyLogs, ...pond }) => {
+  return ponds.map(({ dailyLogs, cycles, ...pond }) => {
     const today = dailyLogs.find((log) => dateToDayKey(log.date) === dayKey) ?? null;
     const previous = dailyLogs.find((log) => dateToDayKey(log.date) < dayKey) ?? null;
-    return { pond, today, previous };
+    return { pond, today, previous, cycle: getCycleStatus(pond, cycles[0], dayKey) };
   });
 }
