@@ -20,6 +20,12 @@ export type MetricSampling = {
   avgWeightKg: number;
 };
 
+export type MetricHarvest = {
+  date: Date;
+  totalKg: number;
+  fishCount: number | null;
+};
+
 export type MetricPond = {
   stockedAt: Date | null;
   stockedCount: number | null;
@@ -37,6 +43,7 @@ export type MonthRow = {
   avgWeightKg: number | null;
   deadKg: number;
   cumulativeFeedKg: number;
+  harvestedKg: number;
   estimatedBiomassKg: number;
   feedKgByType: Record<string, number>;
 };
@@ -66,10 +73,17 @@ export type PondMetrics = {
     deadKg: number;
   };
   latestSampling: { date: string; avgWeightKg: number } | null;
+  // Growth per day between the last two samplings, in kg.
+  dailyGainKg: number | null;
   daysSinceSampling: number | null;
+  // Harvests taken so far this cycle; their weight and fish come off the stock.
+  harvested: { count: number; kg: number; fish: number; lastDate: string | null };
   // The spreadsheet's method: feed consumed ÷ assumed FCR, less mortality.
   estimatedBiomassKg: number;
+  // What is left in the pond: the estimate above less anything harvested.
   estimatedHarvestKg: number;
+  // Fish left: stocked less dead less harvested, when the stocked count is known.
+  fishAlive: number | null;
   feedCostPerKg: number | null;
   // Only available once the stocked count is known.
   survivalRate: number | null;
@@ -102,6 +116,7 @@ export function computePondMetrics(
   logs: MetricLog[],
   samplings: MetricSampling[],
   today: string,
+  harvests: MetricHarvest[] = [],
 ): PondMetrics {
   const sortedLogs = [...logs].sort((a, b) => a.date.getTime() - b.date.getTime());
   const sortedSamplings = [...samplings].sort((a, b) => a.date.getTime() - b.date.getTime());
@@ -129,6 +144,7 @@ export function computePondMetrics(
         avgWeightKg: null,
         deadKg: 0,
         cumulativeFeedKg: 0,
+        harvestedKg: 0,
         estimatedBiomassKg: 0,
         feedKgByType: {},
       };
@@ -174,14 +190,21 @@ export function computePondMetrics(
     if (month) month.avgWeightKg = sampling.avgWeightKg;
   }
 
+  for (const harvest of harvests) {
+    const month = monthMap.get(monthKeyOf(harvest.date));
+    if (month) month.harvestedKg += harvest.totalKg;
+  }
+
   const months = [...monthMap.values()].sort((a, b) => a.monthKey.localeCompare(b.monthKey));
   let cumulativeFeed = 0;
   let cumulativeDeadKg = 0;
+  let cumulativeHarvestKg = 0;
   for (const month of months) {
     cumulativeFeed += month.feedKg;
     cumulativeDeadKg += month.deadKg;
+    cumulativeHarvestKg += month.harvestedKg;
     month.cumulativeFeedKg = cumulativeFeed;
-    month.estimatedBiomassKg = Math.max(cumulativeFeed / pond.assumedFcr - cumulativeDeadKg, 0);
+    month.estimatedBiomassKg = Math.max(cumulativeFeed / pond.assumedFcr - cumulativeDeadKg - cumulativeHarvestKg, 0);
   }
 
   const firstLogDate = sortedLogs[0] ? dateToDayKey(sortedLogs[0].date) : null;
@@ -191,11 +214,32 @@ export function computePondMetrics(
     ? { date: dateToDayKey(latest.date), avgWeightKg: latest.avgWeightKg }
     : null;
 
-  const estimatedBiomassKg = totals.feedKg / pond.assumedFcr;
-  const estimatedHarvestKg = Math.max(estimatedBiomassKg - totals.deadKg, 0);
+  const previousSample = sortedSamplings.at(-2);
+  const sampleDays = latest && previousSample ? daysBetween(dateToDayKey(previousSample.date), dateToDayKey(latest.date)) : 0;
+  const dailyGainKg = latest && previousSample && sampleDays > 0 ? (latest.avgWeightKg - previousSample.avgWeightKg) / sampleDays : null;
 
-  const alive = pond.stockedCount ? Math.max(pond.stockedCount - totals.deadCount, 0) : null;
+  const sortedHarvests = [...harvests].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const harvested = {
+    count: sortedHarvests.length,
+    kg: sortedHarvests.reduce((sum, harvest) => sum + harvest.totalKg, 0),
+    // Uncounted harvests are converted to fish at that day's average weight.
+    fish: Math.round(
+      sortedHarvests.reduce((sum, harvest) => {
+        if (harvest.fishCount !== null) return sum + harvest.fishCount;
+        const weight = avgWeightOn(harvest.date);
+        return sum + (weight ? harvest.totalKg / weight : 0);
+      }, 0),
+    ),
+    lastDate: sortedHarvests.at(-1) ? dateToDayKey(sortedHarvests.at(-1)!.date) : null,
+  };
+
+  const estimatedBiomassKg = totals.feedKg / pond.assumedFcr;
+  const estimatedHarvestKg = Math.max(estimatedBiomassKg - totals.deadKg - harvested.kg, 0);
+
+  const alive = pond.stockedCount ? Math.max(pond.stockedCount - totals.deadCount - harvested.fish, 0) : null;
   const samplingBiomassKg = alive !== null && latestSampling ? alive * latestSampling.avgWeightKg : null;
+  // Fish already harvested count toward the weight the feed produced.
+  const producedKg = samplingBiomassKg !== null ? samplingBiomassKg + harvested.kg : null;
 
   // Average daily feed over the last 7 days of records.
   const recentFrom = lastLogDate ? addDays(lastLogDate, -6) : null;
@@ -219,13 +263,18 @@ export function computePondMetrics(
     daysSinceLastLog: lastLogDate ? daysBetween(lastLogDate, today) : null,
     totals,
     latestSampling,
+    dailyGainKg,
+    harvested,
+    fishAlive: alive,
     daysSinceSampling: latestSampling ? daysBetween(latestSampling.date, today) : null,
     estimatedBiomassKg,
     estimatedHarvestKg,
-    feedCostPerKg: estimatedHarvestKg > 0 ? totals.feedCostRm / estimatedHarvestKg : null,
-    survivalRate: pond.stockedCount && alive !== null ? alive / pond.stockedCount : null,
+    feedCostPerKg:
+      estimatedHarvestKg + harvested.kg > 0 ? totals.feedCostRm / (estimatedHarvestKg + harvested.kg) : null,
+    // Harvested fish survived, so only deaths count against survival.
+    survivalRate: pond.stockedCount ? Math.max(pond.stockedCount - totals.deadCount, 0) / pond.stockedCount : null,
     samplingBiomassKg,
-    realizedFcr: samplingBiomassKg ? totals.feedKg / samplingBiomassKg : null,
+    realizedFcr: producedKg ? totals.feedKg / producedKg : null,
     recentDailyFeedKg,
     feedingRatePercent:
       biomassForRate > 0 && recentDailyFeedKg > 0 ? (recentDailyFeedKg / biomassForRate) * 100 : null,

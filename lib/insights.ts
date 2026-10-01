@@ -1,8 +1,10 @@
-import { addDays, dateToDayKey, dayKeyToDate, daysBetween, formatDay, formatMonth } from "./dates";
+import { daysBetween } from "./dates";
 import { LOW_STOCK_DAYS, type StockLevel } from "./inventory";
 import type { PondWithMetrics } from "./queries";
 import { formatNumber } from "./format";
 import { fcrRating, harvestForecast, supplyGaps } from "./cycle";
+import { SAMPLING_INTERVAL_DAYS, findMortalitySpike } from "./health";
+import type { I18n } from "./i18n/translate";
 
 export type Insight = {
   severity: "critical" | "warning" | "info";
@@ -11,7 +13,6 @@ export type Insight = {
   href?: string;
 };
 
-const SAMPLING_INTERVAL_DAYS = 30;
 const HARVEST_NOTICE_DAYS = 14;
 const EMPTY_NOTICE_DAYS = 30;
 
@@ -21,20 +22,24 @@ export function buildInsights(
   stock: StockLevel[],
   findingsCount: number,
   today: string,
+  { t, fmt }: I18n,
 ): Insight[] {
   const insights: Insight[] = [];
 
-  for (const { pond, metrics, logs, cycle } of ponds) {
+  const n0 = (value: number) => formatNumber(value, 0);
+
+  for (const { pond, metrics, logs, cycle, timing } of ponds) {
     const href = `/ponds/${pond.id}`;
     const cycleHref = `/ponds/${pond.id}?view=cycle`;
+    const name = pond.name;
 
     if (cycle.state === "empty") {
       const days = daysBetween(cycle.since, today);
       if (days >= EMPTY_NOTICE_DAYS) {
         insights.push({
           severity: "info",
-          title: `${pond.name}: empty for ${days} days`,
-          detail: `Last cycle ${cycle.lastOutcome === "lost" ? "was lost" : "was harvested"} ${formatDay(dayKeyToDate(cycle.since))}. Restock to keep supply going.`,
+          title: t("insight.empty.title", { pond: name, n: days }),
+          detail: t(cycle.lastOutcome === "lost" ? "insight.empty.lost" : "insight.empty.harvested", { date: fmt.dayKey(cycle.since) }),
           href: cycleHref,
         });
       }
@@ -45,15 +50,15 @@ export function buildInsights(
     if (pond.stockedCount && metrics.totals.deadCount >= pond.stockedCount) {
       insights.push({
         severity: "critical",
-        title: `${pond.name}: all stocked fish recorded dead`,
-        detail: `${formatNumber(metrics.totals.deadCount, 0)} dead of ${formatNumber(pond.stockedCount, 0)} stocked. Close the cycle as a loss so estimates and the harvest plan stop counting this pond.`,
+        title: t("insight.allDead.title", { pond: name }),
+        detail: t("insight.allDead.detail", { dead: n0(metrics.totals.deadCount), stocked: n0(pond.stockedCount) }),
         href: cycleHref,
       });
     } else if (pond.stockedCount && metrics.totals.deadCount >= pond.stockedCount / 2) {
       insights.push({
         severity: "warning",
-        title: `${pond.name}: over half the stock recorded dead`,
-        detail: `${formatNumber(metrics.totals.deadCount, 0)} of ${formatNumber(pond.stockedCount, 0)} fish. If the pond is wiped out, close the cycle as a loss.`,
+        title: t("insight.halfDead.title", { pond: name }),
+        detail: t("insight.halfDead.detail", { dead: n0(metrics.totals.deadCount), stocked: n0(pond.stockedCount) }),
         href: cycleHref,
       });
     }
@@ -61,8 +66,8 @@ export function buildInsights(
     if (metrics.realizedFcr !== null && fcrRating(metrics.realizedFcr, pond.assumedFcr) === "high") {
       insights.push({
         severity: "warning",
-        title: `${pond.name}: FCR ${metrics.realizedFcr.toFixed(2)}, above target ${pond.assumedFcr}`,
-        detail: `${formatNumber(metrics.totals.feedKg, 0)} kg of feed for about ${formatNumber(metrics.samplingBiomassKg ?? 0, 0)} kg of fish. Check for overfeeding, uneaten feed or unrecorded deaths, and reweigh a sample.`,
+        title: t("insight.fcr.title", { pond: name, fcr: metrics.realizedFcr.toFixed(2), target: pond.assumedFcr }),
+        detail: t("insight.fcr.detail", { feed: n0(metrics.totals.feedKg), fish: n0((metrics.samplingBiomassKg ?? 0) + metrics.harvested.kg) }),
         href,
       });
     }
@@ -70,27 +75,43 @@ export function buildInsights(
     if (cycle.state === "ready") {
       insights.push({
         severity: "warning",
-        title: `${pond.name}: ready to harvest`,
+        title: t("insight.ready.title", { pond: name }),
         detail:
           cycle.daysToHarvest === 0
-            ? "Planned harvest is today. Record the harvest when it's done."
-            : `${-cycle.daysToHarvest} days past the planned harvest (${formatDay(dayKeyToDate(cycle.plannedHarvestAt))}). Record the harvest when it's done.`,
+            ? t("insight.ready.today")
+            : t("insight.ready.past", { n: -cycle.daysToHarvest, date: fmt.dayKey(cycle.plannedHarvestAt) }),
+        href: cycleHref,
+      });
+    } else if (timing?.atTarget) {
+      insights.push({
+        severity: "warning",
+        title: t("insight.atTarget.title", { pond: name }),
+        detail: t("insight.atTarget.detail", { target: timing.targetKg ?? 0 }),
         href: cycleHref,
       });
     } else if (cycle.state === "growing" && cycle.daysToHarvest <= HARVEST_NOTICE_DAYS) {
       insights.push({
         severity: "info",
-        title: `${pond.name}: harvest in ${cycle.daysToHarvest} days`,
-        detail: `Planned for ${formatDay(dayKeyToDate(cycle.plannedHarvestAt))}. Line up buyers and labour.`,
+        title: t("insight.harvestSoon.title", { pond: name, n: cycle.daysToHarvest }),
+        detail: t("insight.harvestSoon.detail", { date: fmt.dayKey(cycle.plannedHarvestAt) }),
         href: cycleHref,
+      });
+    }
+
+    if (pond.waterStatus === "poor") {
+      insights.push({
+        severity: "critical",
+        title: t("insight.water.title", { pond: name }),
+        detail: pond.waterNote ?? t("insight.water.detail"),
+        href: `${href}#specs`,
       });
     }
 
     if (metrics.lastLogDate && metrics.daysSinceLastLog !== null && metrics.daysSinceLastLog > 1) {
       insights.push({
         severity: metrics.daysSinceLastLog > 3 ? "critical" : "warning",
-        title: `${pond.name}: no entries for ${metrics.daysSinceLastLog} days`,
-        detail: `Last record was ${formatDay(dayKeyToDate(metrics.lastLogDate))}. Feed and mortality since then are unrecorded.`,
+        title: t("insight.noEntries.title", { pond: name, n: metrics.daysSinceLastLog }),
+        detail: t("insight.noEntries.detail", { date: fmt.dayKey(metrics.lastLogDate) }),
         href: "/log",
       });
     }
@@ -102,8 +123,8 @@ export function buildInsights(
     ) {
       insights.push({
         severity: "warning",
-        title: `${pond.name}: sampling due`,
-        detail: `Fish were last weighed ${formatDay(dayKeyToDate(metrics.latestSampling!.date))} (${metrics.daysSinceSampling} days ago). Weigh a sample to keep growth and harvest estimates current.`,
+        title: t("insight.sampling.title", { pond: name }),
+        detail: t("insight.sampling.detail", { date: fmt.dayKey(metrics.latestSampling!.date), n: metrics.daysSinceSampling }),
         href: `/log/${pond.id}`,
       });
     }
@@ -112,8 +133,8 @@ export function buildInsights(
     if (spike) {
       insights.push({
         severity: "critical",
-        title: `${pond.name}: mortality spike on ${formatDay(dayKeyToDate(spike.date), { year: false })}`,
-        detail: `${spike.count} dead fish against a usual ${formatNumber(spike.baseline, 1)} a day. Check water quality and feeding response.`,
+        title: t("insight.spike.title", { pond: name, date: fmt.dayKey(spike.date, { year: false }) }),
+        detail: t("insight.spike.detail", { count: spike.count, baseline: formatNumber(spike.baseline, 1) }),
         href,
       });
     }
@@ -121,8 +142,8 @@ export function buildInsights(
     if (metrics.lastLogDate && !pond.stockedCount) {
       insights.push({
         severity: "info",
-        title: `${pond.name}: stocking count missing`,
-        detail: "Add the number of fingerlings stocked to unlock survival rate and actual FCR from sampling.",
+        title: t("insight.noCount.title", { pond: name }),
+        detail: t("insight.noCount.detail"),
         href: `/ponds/${pond.id}?view=settings`,
       });
     }
@@ -133,15 +154,18 @@ export function buildInsights(
     if (level.onHandBags === null) {
       insights.push({
         severity: "info",
-        title: `${level.feedType.code}: no stocktake recorded`,
-        detail: `In use at ${formatNumber(level.avgDailyBags, 1)} bags a day. Count the store once to start tracking days of stock left.`,
+        title: t("insight.noStocktake.title", { code: level.feedType.code }),
+        detail: t("insight.noStocktake.detail", { rate: formatNumber(level.avgDailyBags, 1) }),
         href: "/inventory",
       });
     } else if (level.daysOfCover !== null && level.daysOfCover < LOW_STOCK_DAYS) {
       insights.push({
         severity: level.daysOfCover < 3 ? "critical" : "warning",
-        title: `${level.feedType.code}: about ${formatNumber(level.daysOfCover, 0)} days of feed left`,
-        detail: `${formatNumber(Math.max(level.onHandBags, 0), 1)} bags on hand at ${formatNumber(level.avgDailyBags, 1)} bags a day. Plan the next order.`,
+        title: t("insight.lowStock.title", { code: level.feedType.code, days: n0(level.daysOfCover) }),
+        detail: t("insight.lowStock.detail", {
+          onHand: formatNumber(Math.max(level.onHandBags, 0), 1),
+          rate: formatNumber(level.avgDailyBags, 1),
+        }),
         href: "/inventory",
       });
     }
@@ -151,8 +175,8 @@ export function buildInsights(
   if (gaps.length > 0) {
     insights.push({
       severity: "warning",
-      title: `No harvest planned in ${gaps.length} ${gaps.length === 1 ? "month" : "months"}`,
-      detail: `${gaps.map((month) => formatMonth(month.monthKey, "long")).join(", ")}. Stagger the next stocking to keep fish available all year.`,
+      title: t("insight.gaps.title", { n: gaps.length }),
+      detail: t("insight.gaps.detail", { months: gaps.map((month) => fmt.month(month.monthKey, "long")).join(", ") }),
       href: "/#cycles",
     });
   }
@@ -160,8 +184,8 @@ export function buildInsights(
   if (findingsCount > 0) {
     insights.push({
       severity: "info",
-      title: `${findingsCount} spreadsheet ${findingsCount === 1 ? "issue" : "issues"} found on import`,
-      detail: "Totals that did not match the daily rows were recalculated. Review what changed.",
+      title: t("insight.findings.title", { n: findingsCount }),
+      detail: t("insight.findings.detail"),
       href: ponds.find((entry) => entry.metrics.lastLogDate)
         ? `/ponds/${ponds.find((entry) => entry.metrics.lastLogDate)!.pond.id}?view=data`
         : "/import",
@@ -170,27 +194,4 @@ export function buildInsights(
 
   const order = { critical: 0, warning: 1, info: 2 };
   return insights.sort((a, b) => order[a.severity] - order[b.severity]);
-}
-
-// Highest single-day count in the last 7 days of records that is at least 3
-// fish and 3x the daily average of the 28 days before it.
-function findMortalitySpike(logs: { date: Date; deadCount: number }[]) {
-  if (logs.length === 0) return null;
-  const sorted = [...logs].sort((a, b) => a.date.getTime() - b.date.getTime());
-  const last = dateToDayKey(sorted.at(-1)!.date);
-  const recentFrom = addDays(last, -6);
-  const baselineFrom = addDays(recentFrom, -28);
-
-  const recent = sorted.filter((log) => dateToDayKey(log.date) >= recentFrom);
-  const baselineTotal = sorted
-    .filter((log) => {
-      const key = dateToDayKey(log.date);
-      return key >= baselineFrom && key < recentFrom;
-    })
-    .reduce((sum, log) => sum + log.deadCount, 0);
-  const baseline = baselineTotal / 28;
-
-  const worst = recent.reduce((max, log) => (log.deadCount > max.deadCount ? log : max), recent[0]);
-  if (!worst || worst.deadCount < 3 || worst.deadCount < baseline * 3) return null;
-  return { date: dateToDayKey(worst.date), count: worst.deadCount, baseline };
 }

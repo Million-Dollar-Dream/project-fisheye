@@ -3,12 +3,13 @@ import { addDays, addMonths, addMonthsToDay, dateToDayKey, daysBetween } from ".
 // Growth stages across one culture cycle, as equal quarters of the planned
 // length (month 0–2, 2–4, 4–6, 6–8 for the usual 8-month cycle), then
 // "ready" once the planned harvest date is reached.
+// Labels are translated as "stage.<key>".
 export const STAGES = [
-  { key: "nursery", label: "Nursery", color: "var(--stage-1)" },
-  { key: "juvenile", label: "Juvenile", color: "var(--stage-2)" },
-  { key: "growout", label: "Grow-out", color: "var(--stage-3)" },
-  { key: "finishing", label: "Finishing", color: "var(--stage-4)" },
-  { key: "ready", label: "Ready to harvest", color: "var(--stage-5)" },
+  { key: "nursery", color: "var(--stage-1)" },
+  { key: "juvenile", color: "var(--stage-2)" },
+  { key: "growout", color: "var(--stage-3)" },
+  { key: "finishing", color: "var(--stage-4)" },
+  { key: "ready", color: "var(--stage-5)" },
 ] as const;
 
 export type Stage = (typeof STAGES)[number];
@@ -81,13 +82,15 @@ export function stageSpans(stockedAt: string, plannedHarvestAt: string) {
   }));
 }
 
-// "Month 0–2" style range for a stage, given the planned cycle length.
+// Culture months a stage spans (0–2 for the first of an 8-month cycle);
+// "to" is null for the ready stage, which runs on from the planned end.
 export function stageMonthRange(stageIndex: number, cycleMonths: number) {
-  if (stageIndex >= GROWING_STAGES) return `Month ${cycleMonths}+`;
+  if (stageIndex >= GROWING_STAGES) return { from: cycleMonths, to: null };
   const round = (value: number) => Number(value.toFixed(1));
-  const from = round((cycleMonths * stageIndex) / GROWING_STAGES);
-  const to = round((cycleMonths * (stageIndex + 1)) / GROWING_STAGES);
-  return `Month ${from}–${to}`;
+  return {
+    from: round((cycleMonths * stageIndex) / GROWING_STAGES),
+    to: round((cycleMonths * (stageIndex + 1)) / GROWING_STAGES),
+  };
 }
 
 // The first day that belongs to the running cycle, so logs from earlier

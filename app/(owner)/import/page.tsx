@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import { prisma } from "@/lib/prisma";
 import { PageHeader } from "@/app/components/ui";
+import { getI18n } from "@/lib/i18n/server";
 import ImportForm from "./ImportForm";
 
-export const metadata: Metadata = { title: "Import spreadsheet" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  return { title: t("pond.importSpreadsheet") };
+}
 export const dynamic = "force-dynamic";
 
 export default async function ImportPage({ searchParams }: PageProps<"/import">) {
   const { pond } = await searchParams;
+  const { t } = await getI18n();
   const [ponds, feedTypes] = await Promise.all([
     prisma.pond.findMany({
       orderBy: { id: "asc" },
@@ -19,9 +24,9 @@ export default async function ImportPage({ searchParams }: PageProps<"/import">)
   return (
     <>
       <PageHeader
-        eyebrow="Digitise records"
-        title="Import a pond spreadsheet"
-        description="Upload the Fish Pond Performance Report exported as CSV. Fisheye reads every monthly block, checks the sheet against its own totals, and shows what it found before anything is saved."
+        eyebrow={t("import.eyebrow")}
+        title={t("import.title")}
+        description={t("import.description")}
       />
       <ImportForm
         ponds={ponds.map((entry) => ({ id: entry.id, name: entry.name, records: entry._count.dailyLogs }))}

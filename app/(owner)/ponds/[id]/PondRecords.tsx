@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { getFeedTypes, getPondDetail } from "@/lib/queries";
-import { dateToDayKey, dayKeyToDate, daysInMonth, formatDay, formatMonth, monthKeyOf } from "@/lib/dates";
+import { dateToDayKey, daysInMonth, monthKeyOf } from "@/lib/dates";
+import { getI18n } from "@/lib/i18n/server";
 import { formatNumber, formatRm } from "@/lib/format";
 import { PencilIcon, PlusIcon } from "@/app/components/icons";
 import { Badge, Card, CardHeader, cx, feedColor } from "@/app/components/ui";
@@ -10,7 +11,7 @@ import ConfirmButton from "@/app/components/ConfirmButton";
 type Detail = NonNullable<Awaited<ReturnType<typeof getPondDetail>>>;
 type FeedTypes = Awaited<ReturnType<typeof getFeedTypes>>;
 
-export default function PondRecords({
+export default async function PondRecords({
   detail,
   feedTypes,
   month: requestedMonth,
@@ -21,6 +22,7 @@ export default function PondRecords({
   month?: string;
   today: string;
 }) {
+  const { t, fmt } = await getI18n();
   const { pond, allLogs: logs, metrics } = detail;
   const currentMonth = today.slice(0, 7);
   // Includes months from earlier cycles so their records stay reachable.
@@ -50,7 +52,7 @@ export default function PondRecords({
 
   return (
     <div className="space-y-6">
-      <nav aria-label="Month" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <nav aria-label={t("pond.col.month")} className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
         <ul className="flex min-w-max gap-1.5">
           {months.map((key) => (
             <li key={key}>
@@ -65,7 +67,7 @@ export default function PondRecords({
                     : "border-line bg-surface text-ink-2 hover:border-line-strong",
                 )}
               >
-                {formatMonth(key)}
+                {fmt.month(key)}
               </Link>
             </li>
           ))}
@@ -75,24 +77,25 @@ export default function PondRecords({
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card>
           <CardHeader
-            title={formatMonth(month, "long")}
+            title={fmt.month(month, "long")}
             description={
               summary
-                ? `${summary.daysLogged} of ${lastDay} days recorded${summary.cultureMonth !== null ? ` · culture month ${summary.cultureMonth}` : ""}`
-                : "No records this month yet."
+                ? t("records.daysRecorded", { done: summary.daysLogged, total: lastDay }) +
+                  (summary.cultureMonth !== null ? ` · ${t("records.cultureMonth", { n: summary.cultureMonth })}` : "")
+                : t("records.none")
             }
           />
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[820px] text-sm tabular-nums">
               <thead>
                 <tr className="border-y border-line bg-surface-2 text-left text-xs font-medium text-ink-3">
-                  <th className="px-5 py-2.5 font-medium">Date</th>
-                  <th className="px-3 py-2.5 font-medium">Feed type</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Bags</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Feed (kg)</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Cost</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Dead</th>
-                  <th className="px-3 py-2.5 font-medium">Recorded</th>
+                  <th className="px-5 py-2.5 font-medium">{t("harvests.col.date")}</th>
+                  <th className="px-3 py-2.5 font-medium">{t("pond.col.feedType")}</th>
+                  <th className="px-3 py-2.5 text-right font-medium">{t("pond.col.bags")}</th>
+                  <th className="px-3 py-2.5 text-right font-medium">{t("pond.col.feed")}</th>
+                  <th className="px-3 py-2.5 text-right font-medium">{t("pond.col.cost")}</th>
+                  <th className="px-3 py-2.5 text-right font-medium">{t("table.dead")}</th>
+                  <th className="px-3 py-2.5 font-medium">{t("records.recorded")}</th>
                   <th className="w-24 px-5 py-2.5" />
                 </tr>
               </thead>
@@ -107,7 +110,7 @@ export default function PondRecords({
                       className={cx("border-b border-line last:border-0", log ? "hover:bg-surface-2" : "bg-surface-2/40")}
                     >
                       <td className="px-5 py-2 whitespace-nowrap text-ink-2">
-                        {formatDay(dayKeyToDate(dayKey), { weekday: true, year: false })}
+                        {fmt.dayKey(dayKey, { weekday: true, year: false })}
                       </td>
                       {log ? (
                         <>
@@ -118,7 +121,7 @@ export default function PondRecords({
                                 {log.feedType.code}
                               </span>
                             ) : (
-                              <span className="text-ink-3">No feeding</span>
+                              <span className="text-ink-3">{t("log.noFeeding")}</span>
                             )}
                             {log.note && <p className="max-w-56 truncate text-xs text-ink-3" title={log.note}>{log.note}</p>}
                           </td>
@@ -130,9 +133,9 @@ export default function PondRecords({
                           </td>
                           <td className="px-3 py-2">
                             {log.source === "import" ? (
-                              <Badge>Spreadsheet</Badge>
+                              <Badge>{t("records.spreadsheet")}</Badge>
                             ) : (
-                              <Badge tone="brand">{log.recordedBy ?? "App"}</Badge>
+                              <Badge tone="brand">{log.recordedBy ?? t("records.app")}</Badge>
                             )}
                           </td>
                           <td className="px-5 py-2">
@@ -140,15 +143,15 @@ export default function PondRecords({
                               <Link
                                 href={editHref}
                                 className="inline-flex size-8 items-center justify-center rounded-md text-ink-3 hover:bg-surface-3 hover:text-ink"
-                                aria-label={`Edit ${dayKey}`}
+                                aria-label={t("records.editDay", { date: dayKey })}
                               >
                                 <PencilIcon className="size-4" />
                               </Link>
                               <ConfirmButton
                                 action={deleteDailyLog}
                                 fields={{ id: String(log.id) }}
-                                message={`Delete the record for ${formatDay(log.date)}?`}
-                                label={`Delete ${dayKey}`}
+                                message={t("records.deleteConfirm", { date: fmt.day(log.date) })}
+                                label={t("records.deleteDay", { date: dayKey })}
                               />
                             </div>
                           </td>
@@ -156,7 +159,7 @@ export default function PondRecords({
                       ) : (
                         <>
                           <td colSpan={6} className="px-3 py-2 text-xs text-ink-3">
-                            Not recorded
+                            {t("pond.notRecorded")}
                           </td>
                           <td className="px-5 py-2 text-right">
                             <Link
@@ -164,7 +167,7 @@ export default function PondRecords({
                               className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-brand hover:bg-brand-soft"
                             >
                               <PlusIcon className="size-3.5" />
-                              Add
+                              {t("form.add")}
                             </Link>
                           </td>
                         </>
@@ -176,7 +179,7 @@ export default function PondRecords({
               {summary && (
                 <tfoot>
                   <tr className="bg-surface-2 font-semibold text-ink">
-                    <td className="px-5 py-3">Total</td>
+                    <td className="px-5 py-3">{t("records.total")}</td>
                     <td className="px-3 py-3" />
                     <td className="px-3 py-3 text-right">{formatNumber(summary.bags, 1)}</td>
                     <td className="px-3 py-3 text-right">{formatNumber(summary.feedKg, 0)}</td>
@@ -192,17 +195,17 @@ export default function PondRecords({
 
         <div className="space-y-6">
           <Card>
-            <CardHeader title="Feed cost breakdown" description="The sheet's monthly cost table." />
+            <CardHeader title={t("records.breakdown")} description={t("records.breakdownDescription")} />
             {byType.size === 0 ? (
-              <p className="px-5 pt-3 pb-5 text-sm text-ink-3">No feed recorded this month.</p>
+              <p className="px-5 pt-3 pb-5 text-sm text-ink-3">{t("records.noFeed")}</p>
             ) : (
               <table className="mt-4 w-full text-sm tabular-nums">
                 <thead>
                   <tr className="border-y border-line bg-surface-2 text-right text-xs text-ink-3">
-                    <th className="px-5 py-2 text-left font-medium">Type</th>
-                    <th className="px-2 py-2 font-medium">Bags</th>
+                    <th className="px-5 py-2 text-left font-medium">{t("records.type")}</th>
+                    <th className="px-2 py-2 font-medium">{t("pond.col.bags")}</th>
                     <th className="px-2 py-2 font-medium">kg</th>
-                    <th className="px-5 py-2 font-medium">Cost</th>
+                    <th className="px-5 py-2 font-medium">{t("pond.col.cost")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -229,12 +232,12 @@ export default function PondRecords({
 
           {summary && (
             <Card className="p-5">
-              <h2 className="text-[15px] font-semibold text-ink">Month summary</h2>
+              <h2 className="text-[15px] font-semibold text-ink">{t("records.summary")}</h2>
               <dl className="mt-3 grid grid-cols-2 gap-4 text-sm">
-                <Stat label="Feed" value={`${formatNumber(summary.feedKg, 0)} kg`} />
-                <Stat label="Cost" value={formatRm(summary.feedCostRm, 0)} />
-                <Stat label="Dead fish" value={String(summary.deadCount)} />
-                <Stat label="Mortality" value={`${formatNumber(summary.deadKg, 2)} kg`} />
+                <Stat label={t("entry.feed")} value={`${formatNumber(summary.feedKg, 0)} kg`} />
+                <Stat label={t("pond.col.cost")} value={formatRm(summary.feedCostRm, 0)} />
+                <Stat label={t("overview.deadFish")} value={String(summary.deadCount)} />
+                <Stat label={t("pond.col.deadKg")} value={`${formatNumber(summary.deadKg, 2)} kg`} />
               </dl>
             </Card>
           )}

@@ -73,8 +73,8 @@ export function lastDayOfMonth(monthKey: string): Date {
   return dayKeyToDate(`${monthKey}-${String(daysInMonth(monthKey)).padStart(2, "0")}`);
 }
 
-export function formatDay(date: Date, options?: { weekday?: boolean; year?: boolean }) {
-  return date.toLocaleDateString("en-GB", {
+export function formatDay(date: Date, options?: { weekday?: boolean; year?: boolean; tag?: string }) {
+  return date.toLocaleDateString(options?.tag ?? "en-GB", {
     timeZone: "UTC",
     day: "numeric",
     month: "short",
@@ -83,8 +83,8 @@ export function formatDay(date: Date, options?: { weekday?: boolean; year?: bool
   });
 }
 
-export function formatMonth(monthKey: string, style: "short" | "long" = "short") {
-  return monthStart(monthKey).toLocaleDateString("en-GB", {
+export function formatMonth(monthKey: string, style: "short" | "long" = "short", tag = "en-GB") {
+  return monthStart(monthKey).toLocaleDateString(tag, {
     timeZone: "UTC",
     month: style,
     year: style === "short" ? "2-digit" : "numeric",

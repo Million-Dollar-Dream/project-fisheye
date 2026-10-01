@@ -1,22 +1,37 @@
 import Link from "next/link";
-import { dayKeyToDate, formatDay, formatMonth, relativeDays, todayKey } from "@/lib/dates";
-import { formatAbw, formatBags, formatKg, formatNumber, formatRm } from "@/lib/format";
+import { daysBetween, daysInMonth, todayKey } from "@/lib/dates";
+import { formatAbw, formatKg, formatNumber, formatRm } from "@/lib/format";
 import { buildInsights, type Insight } from "@/lib/insights";
 import { STAGES, harvestForecast, type CycleStatus, type StageKey } from "@/lib/cycle";
-import { getOpenFindings, getPondsWithMetrics, getRecentActivity, getStockLevels } from "@/lib/queries";
+import { estimateBoxes } from "@/lib/harvest";
+import { MANY_PONDS, buildFarmGroups } from "@/lib/farmMap";
+import { getI18n } from "@/lib/i18n/server";
+import { getBoxKg } from "@/lib/settings";
+import {
+  getFarms,
+  getMonthlyFeedCost,
+  getOpenFindings,
+  getPondsWithMetrics,
+  getRecentActivity,
+  getStockLevels,
+} from "@/lib/queries";
 import BarChart, { type BarDatum } from "../components/charts/BarChart";
-import { CycleBoard, CycleProgress, FcrValue, StageBadge } from "../components/cycle";
+import { CycleBoard, CycleProgress, FcrValue, StageBadge, stageLabel } from "../components/cycle";
+import { FarmMap, FarmSummaryGrid, HealthBadge } from "../components/harvest";
 import Sparkline from "../components/charts/Sparkline";
 import {
   AlertIcon,
   CalendarIcon,
   ArrowRightIcon,
+  BoxIcon,
   ChartIcon,
   ChevronRightIcon,
   ClipboardIcon,
   CoinsIcon,
   FeedIcon,
+  HarvestIcon,
   InfoIcon,
+  MapIcon,
   ScaleIcon,
   SkullIcon,
   UploadIcon,
@@ -24,6 +39,13 @@ import {
 import { Badge, Card, CardHeader, EmptyState, Legend, PageHeader, StatCard, buttonClass, cx } from "../components/ui";
 
 export const dynamic = "force-dynamic";
+
+// Past this many ponds the feed chart stacks by farm instead of by pond.
+const MAX_POND_SERIES = 8;
+// The ready banner shows this many ponds and links to the farm map for the rest.
+const MAX_READY_CARDS = 6;
+// Rows the pond table shows before "Show all".
+const TABLE_LIMIT = 15;
 
 type StageFilter = StageKey | "empty";
 
@@ -34,12 +56,18 @@ function stageFilterOf(cycle: CycleStatus): StageFilter | null {
 
 export default async function OverviewPage({ searchParams }: PageProps<"/">) {
   const today = todayKey();
-  const requestedStage = (await searchParams).stage;
-  const [ponds, stock, batches, activity] = await Promise.all([
+  const i18n = await getI18n();
+  const { t, fmt } = i18n;
+  const query = await searchParams;
+  const requestedStage = query.stage;
+  const [ponds, stock, batches, activity, farms, boxKg, monthCost] = await Promise.all([
     getPondsWithMetrics(today),
     getStockLevels(today),
     getOpenFindings(),
     getRecentActivity(6),
+    getFarms(),
+    getBoxKg(),
+    getMonthlyFeedCost(today),
   ]);
 
   const withData = ponds.filter((entry) => entry.metrics.lastLogDate);
@@ -47,15 +75,19 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
     (sum, batch) => sum + batch.findings.filter((finding) => finding.severity === "warning").length,
     0,
   );
-  const insights = buildInsights(ponds, stock.levels, findingsCount, today);
+  const insights = buildInsights(ponds, stock.levels, findingsCount, today, i18n);
   const forecast = harvestForecast(ponds, today);
+  const readyPonds = ponds.filter((entry) => entry.harvestability === "ready");
+  const farmGroups = buildFarmGroups(ponds, farms, boxKg, t("farmMap.unassigned"));
 
   const filters = [
-    ...STAGES.map((stage) => ({ key: stage.key as StageFilter, label: stage.label, color: stage.color })),
-    { key: "empty" as StageFilter, label: "Empty", color: "var(--line-strong)" },
+    ...STAGES.map((stage) => ({ key: stage.key as StageFilter, label: stageLabel(t, stage.key), color: stage.color as string | null })),
+    { key: "empty" as StageFilter, label: t("harvestability.empty"), color: "var(--line-strong)" },
   ].map((filter) => ({ ...filter, count: ponds.filter(({ cycle }) => stageFilterOf(cycle) === filter.key).length }));
   const activeFilter = filters.find((filter) => filter.key === requestedStage && filter.count > 0)?.key ?? null;
-  const tablePonds = activeFilter ? ponds.filter(({ cycle }) => stageFilterOf(cycle) === activeFilter) : ponds;
+  const filteredPonds = activeFilter ? ponds.filter(({ cycle }) => stageFilterOf(cycle) === activeFilter) : ponds;
+  // A long pond list is cut short until asked for in full.
+  const tablePonds = query.all === "1" ? filteredPonds : filteredPonds.slice(0, TABLE_LIMIT);
 
   const nextHarvest = ponds
     .flatMap(({ pond, cycle }) => (cycle.state === "growing" || cycle.state === "ready" ? [{ pond, cycle }] : []))
@@ -65,22 +97,39 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
     (sum, { metrics }) => ({
       harvestKg: sum.harvestKg + metrics.estimatedHarvestKg,
       feedKg: sum.feedKg + metrics.totals.feedKg,
-      bags: sum.bags + metrics.totals.bags,
-      costRm: sum.costRm + metrics.totals.feedCostRm,
       dead: sum.dead + metrics.totals.deadCount,
+      harvestedKg: sum.harvestedKg + metrics.harvested.kg,
     }),
-    { harvestKg: 0, feedKg: 0, bags: 0, costRm: 0, dead: 0 },
+    { harvestKg: 0, feedKg: 0, dead: 0, harvestedKg: 0 },
   );
 
-  // Farm-wide monthly series, stacked by pond.
+  // Farm-wide monthly series, stacked by pond, or by farm once there are
+  // too many ponds for a colour each.
   const monthKeys = [...new Set(withData.flatMap(({ metrics }) => metrics.months.map((month) => month.monthKey)))].sort();
-  const pondColor = (index: number) => `var(--series-${(index % 8) + 1})`;
+  const seriesColor = (index: number) => `var(--series-${(index % 8) + 1})`;
+  const stackByFarm = withData.length > MAX_POND_SERIES;
+  const series = stackByFarm
+    ? farmGroups
+        .map((group) => ({ name: group.name, entries: withData.filter((entry) => (entry.farm?.id ?? null) === group.id) }))
+        .filter((group) => group.entries.length > 0)
+    : withData.map((entry) => ({ name: entry.pond.name, entries: [entry] }));
   const monthly = monthKeys.map((monthKey) => {
-    const rows = withData.map(({ pond, metrics }, index) => ({
-      pond,
-      color: pondColor(index),
-      row: metrics.months.find((month) => month.monthKey === monthKey),
-    }));
+    const rows = series.map(({ name, entries }, index) => {
+      const months = entries.flatMap(({ metrics }) => metrics.months.filter((month) => month.monthKey === monthKey));
+      return {
+        name,
+        color: seriesColor(index),
+        row:
+          months.length === 0
+            ? undefined
+            : {
+                feedKg: months.reduce((sum, month) => sum + month.feedKg, 0),
+                feedCostRm: months.reduce((sum, month) => sum + month.feedCostRm, 0),
+                deadCount: months.reduce((sum, month) => sum + month.deadCount, 0),
+                daysLogged: months.reduce((sum, month) => sum + month.daysLogged, 0),
+              },
+      };
+    });
     return {
       monthKey,
       feedKg: rows.reduce((sum, entry) => sum + (entry.row?.feedKg ?? 0), 0),
@@ -92,131 +141,224 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
   });
   const chartData: BarDatum[] = monthly.map((month) => ({
     key: month.monthKey,
-    label: formatMonth(month.monthKey),
+    label: fmt.month(month.monthKey),
     segments: month.rows.map((entry) => ({
-      name: entry.pond.name,
+      name: entry.name,
       value: entry.row?.feedKg ?? 0,
       color: entry.color,
     })),
     tooltip: {
-      title: formatMonth(month.monthKey, "long"),
+      title: fmt.month(month.monthKey, "long"),
       lines: [
         ...month.rows
           .filter((entry) => entry.row)
-          .map((entry) => ({ label: entry.pond.name, value: formatKg(entry.row!.feedKg, 0), color: entry.color })),
-        { label: "Feed cost", value: formatRm(month.costRm, 0) },
-        { label: "Dead fish", value: formatNumber(month.dead, 0) },
+          .map((entry) => ({ label: entry.name, value: formatKg(entry.row!.feedKg, 0), color: entry.color })),
+        { label: t("overview.feedCost"), value: formatRm(month.costRm, 0) },
+        { label: t("overview.deadFish"), value: formatNumber(month.dead, 0) },
       ],
     },
   }));
 
-  const latest = monthly.at(-1);
-  const previous = monthly.at(-2);
-  // Compare feed per logged pond-day so a month in progress isn't compared
-  // against a full month.
-  const dailyFeed = (month?: { feedKg: number; pondDays: number }) =>
-    month && month.pondDays > 0 ? month.feedKg / month.pondDays : 0;
-  const feedChange = latest && previous && dailyFeed(previous) > 0 ? dailyFeed(latest) / dailyFeed(previous) - 1 : null;
+  // This month so far against last month, compared per day so a month in
+  // progress isn't set against a full one.
+  const dayOfMonth = Number(today.slice(8, 10));
+  const lastMonthDays = daysInMonth(monthCost.lastMonth.monthKey);
+  const costChange =
+    monthCost.lastMonth.costRm > 0 && dayOfMonth > 0
+      ? monthCost.thisMonth.costRm / dayOfMonth / (monthCost.lastMonth.costRm / lastMonthDays) - 1
+      : null;
+  const feedChange =
+    monthCost.lastMonth.feedKg > 0 && dayOfMonth > 0
+      ? monthCost.thisMonth.feedKg / dayOfMonth / (monthCost.lastMonth.feedKg / lastMonthDays) - 1
+      : null;
   const loggedToday = ponds.filter(({ logs }) => logs.some((log) => log.date.toISOString().slice(0, 10) === today)).length;
-  const avgCostPerKg = totals.harvestKg > 0 ? totals.costRm / totals.harvestKg : null;
+  const thisMonthName = fmt.month(monthCost.thisMonth.monthKey, "long");
+  const lastMonthName = fmt.month(monthCost.lastMonth.monthKey);
 
   return (
     <>
       <PageHeader
-        eyebrow={formatDay(dayKeyToDate(today), { weekday: true })}
-        title="Farm overview"
+        eyebrow={fmt.dayKey(today, { weekday: true })}
+        title={t("overview.title")}
         description={
-          `${ponds.length} ponds registered · ${withData.length} with records. Figures are for the current culture cycle.` +
+          t("overview.description", { ponds: ponds.length, withData: withData.length }) +
           (nextHarvest
             ? nextHarvest.cycle.daysToHarvest > 0
-              ? ` Next harvest: ${nextHarvest.pond.name} in ${nextHarvest.cycle.daysToHarvest} days.`
-              : ` ${nextHarvest.pond.name} is ready to harvest.`
+              ? " " + t("overview.nextHarvest", { pond: nextHarvest.pond.name, n: nextHarvest.cycle.daysToHarvest })
+              : " " + t("overview.pondReady", { pond: nextHarvest.pond.name })
             : "")
         }
         actions={
           <>
             <Link href="/import" className={buttonClass("secondary")}>
               <UploadIcon className="size-4" />
-              Import sheet
+              {t("nav.import")}
             </Link>
             <Link href="/log" className={buttonClass("primary")}>
               <ClipboardIcon className="size-4" />
-              Daily log
+              {t("nav.dailyLog")}
             </Link>
           </>
         }
       />
 
-      <section aria-label="Key figures" className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label={t("overview.keyFigures")} className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           emphasis
-          label="Est. standing stock"
+          label={t("overview.standingStock")}
           value={formatNumber(totals.harvestKg, 0)}
           unit="kg"
           icon={<ScaleIcon className="size-4" />}
-          sub={`Feed ÷ FCR, less mortality · ${withData.length} ${withData.length === 1 ? "pond" : "ponds"}`}
+          sub={t("overview.standingStockSub", { boxes: estimateBoxes(totals.harvestKg, boxKg), n: withData.length })}
         />
         <StatCard
-          label="Feed cost this cycle"
-          value={formatRm(totals.costRm, 0)}
+          label={t("overview.feedCostMonth", { month: thisMonthName })}
+          value={formatRm(monthCost.thisMonth.costRm, 0)}
           icon={<CoinsIcon className="size-4" />}
-          sub={avgCostPerKg ? `${formatRm(avgCostPerKg)} feed per kg of fish` : undefined}
+          change={costChange !== null ? { value: costChange, label: t("overview.dailyVs", { month: lastMonthName }), goodWhen: "down" } : null}
+          sub={t("overview.lastMonthCost", { month: lastMonthName, cost: formatRm(monthCost.lastMonth.costRm, 0) })}
         />
         <StatCard
-          label={latest ? `Feed used · ${formatMonth(latest.monthKey, "long")}` : "Feed used"}
-          value={formatNumber(latest?.feedKg ?? 0, 0)}
+          label={t("overview.feedUsedMonth", { month: thisMonthName })}
+          value={formatNumber(monthCost.thisMonth.feedKg, 0)}
           unit="kg"
           icon={<FeedIcon className="size-4" />}
-          change={
-            feedChange !== null && previous
-              ? { value: feedChange, label: `daily avg vs ${formatMonth(previous.monthKey)}`, goodWhen: "up" }
-              : null
-          }
-          sub={feedChange === null ? `${formatNumber(totals.feedKg, 0)} kg this cycle` : undefined}
+          change={feedChange !== null ? { value: feedChange, label: t("overview.dailyVs", { month: lastMonthName }), goodWhen: "up" } : null}
+          sub={feedChange === null ? t("overview.feedCycle", { kg: formatNumber(totals.feedKg, 0) }) : undefined}
         />
         <StatCard
-          label="Mortality this cycle"
+          label={t("overview.deadCycle")}
           value={formatNumber(totals.dead, 0)}
-          unit="fish"
+          unit={t("unit.fish")}
           icon={<SkullIcon className="size-4" />}
-          sub={latest ? `${formatNumber(latest.dead, 0)} in ${formatMonth(latest.monthKey, "long")}` : undefined}
+          sub={
+            totals.harvestedKg > 0
+              ? t("overview.harvestedCycle", { kg: formatNumber(totals.harvestedKg, 0) })
+              : monthly.at(-1)
+                ? t("overview.deadInMonth", { n: formatNumber(monthly.at(-1)!.dead, 0), month: fmt.month(monthly.at(-1)!.monthKey, "long") })
+                : undefined
+          }
         />
       </section>
 
-      <div id="cycles" className="scroll-mt-6" />
-      <Card className="mb-6" as="section">
-        <CardHeader
-          icon={<CalendarIcon className="size-4" />}
-          title="Pond cycles"
-          description="Where each pond is in its cycle, and when fish will be ready. Faded bars are the months ahead."
-        />
-        <div className="mt-4">
-          <CycleBoard entries={ponds} forecast={forecast} today={today} />
-        </div>
-      </Card>
+      {readyPonds.length > 0 && (
+        <section
+          aria-label={t("overview.readyTitle")}
+          className="mb-6 rounded-lg border border-line border-l-4 bg-surface p-5 sm:p-6"
+          style={{ borderLeftColor: "var(--stage-5)" }}
+        >
+          <div className="flex flex-wrap items-start gap-3">
+            <HarvestIcon className="mt-1 size-6 shrink-0" style={{ color: "var(--stage-5)" }} />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl font-semibold tracking-tight text-ink sm:text-2xl">
+                {t("overview.readyTitleCount", { n: readyPonds.length })}
+              </h2>
+              <p className="text-sm text-ink-2">{t("overview.readyDescription")}</p>
+            </div>
+          </div>
+          <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {readyPonds.slice(0, MAX_READY_CARDS).map(({ pond, metrics, timing, health, cycle }) => (
+              <li key={pond.id}>
+                <Link
+                  href={`/ponds/${pond.id}?view=cycle`}
+                  className="flex h-full flex-col rounded-md border border-line bg-surface-2 p-4 hover:border-line-strong"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-lg font-semibold text-ink">{pond.name}</p>
+                    {health && <HealthBadge level={health.level} />}
+                  </div>
+                  <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-ink">
+                    ~{formatNumber(metrics.estimatedHarvestKg, 0)}
+                    <span className="ml-1 text-base font-medium text-ink-3">kg</span>
+                  </p>
+                  <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-2">
+                    <BoxIcon className="size-4 text-ink-3" />
+                    {t("overview.aboutBoxes", { n: estimateBoxes(metrics.estimatedHarvestKg, boxKg), kg: boxKg })}
+                  </p>
+                  <p className="mt-2 text-xs font-medium" style={{ color: "var(--stage-5)" }}>
+                    {timing?.atTarget
+                      ? t("overview.atTarget", { abw: formatAbw(timing.latestAbwKg ?? 0) })
+                      : cycle.state === "ready" && cycle.daysToHarvest < 0
+                        ? t("cycle.readyPast", { n: -cycle.daysToHarvest })
+                        : t("cycle.harvestToday")}
+                  </p>
+                  <span className={cx(buttonClass("primary", "sm"), "mt-3 self-start")}>{t("overview.recordHarvest")}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {readyPonds.length > MAX_READY_CARDS && (
+            <Link href="/farms" className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
+              {t("overview.readyMore", { n: readyPonds.length - MAX_READY_CARDS })}
+              <ArrowRightIcon className="size-4" />
+            </Link>
+          )}
+        </section>
+      )}
+
+      {ponds.length > MANY_PONDS ? (
+        <Card className="mb-6" as="section">
+          <CardHeader
+            title={t("farmMap.farmsTitle")}
+            description={t("farmMap.farmsDescription")}
+            action={
+              <Link href="/farms" className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
+                {t("farmMap.open")}
+                <ArrowRightIcon className="size-4" />
+              </Link>
+            }
+          />
+          <div className="p-5">
+            <FarmSummaryGrid farms={farmGroups} />
+          </div>
+        </Card>
+      ) : (
+        <>
+          <Card className="mb-6" as="section">
+            <CardHeader
+              icon={<MapIcon className="size-4" />}
+              title={t("farmMap.title")}
+              description={t("farmMap.overviewDescription")}
+              action={
+                <Link href="/farms" className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline">
+                  {t("farmMap.open")}
+                  <ArrowRightIcon className="size-4" />
+                </Link>
+              }
+            />
+            <div className="p-5">
+              <FarmMap farms={farmGroups} size="sm" />
+            </div>
+          </Card>
+
+          <div id="cycles" className="scroll-mt-6" />
+          <Card className="mb-6" as="section">
+            <CardHeader icon={<CalendarIcon className="size-4" />} title={t("overview.cyclesTitle")} description={t("overview.cyclesDescription")} />
+            <div className="mt-4">
+              <CycleBoard entries={ponds} forecast={forecast} today={today} />
+            </div>
+          </Card>
+        </>
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0">
           <Card className="flex h-full flex-col">
             <CardHeader
               icon={<ChartIcon className="size-4" />}
-              title="Monthly feed"
-              description="Feed consumed per month across the farm. Hover a bar for cost and mortality."
+              title={t("overview.monthlyFeed")}
+              description={t("overview.monthlyFeedDescription")}
               action={
-                withData.length > 1 ? (
-                  <Legend items={withData.map(({ pond }, index) => ({ label: pond.name, color: pondColor(index) }))} />
+                series.length > 1 ? (
+                  <Legend items={series.map(({ name }, index) => ({ label: name, color: seriesColor(index) }))} />
                 ) : undefined
               }
             />
             <div className="flex flex-1 flex-col px-3 pt-4 pb-4 sm:px-5">
               {chartData.length > 0 ? (
-                <BarChart data={chartData} unit="kg" ariaLabel="Monthly feed consumed in kilograms" height={280} fill />
+                <BarChart data={chartData} unit="kg" ariaLabel={t("overview.monthlyFeedAria")} height={280} fill />
               ) : (
-                <EmptyState
-                  icon={<ChartIcon className="size-5" />}
-                  title="No feed records yet"
-                  description="Import a pond spreadsheet or start the daily log."
-                />
+                <EmptyState icon={<ChartIcon className="size-5" />} title={t("overview.noFeed")} description={t("overview.noFeedDescription")} />
               )}
             </div>
           </Card>
@@ -225,52 +367,49 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
         <aside className="space-y-6">
           <Card className="p-5">
             <div className="flex items-center justify-between">
-              <h2 className="text-[15px] font-semibold text-ink">Today&apos;s logging</h2>
+              <h2 className="text-[15px] font-semibold text-ink">{t("overview.todayLogging")}</h2>
               <Badge tone={loggedToday === ponds.length && ponds.length > 0 ? "positive" : "neutral"}>
-                {loggedToday}/{ponds.length} ponds
+                {t("overview.pondsCount", { done: loggedToday, total: ponds.length })}
               </Badge>
             </div>
-            <div className="mt-4 flex gap-1" aria-hidden="true">
+            <div className={cx("mt-4 flex", ponds.length > MANY_PONDS ? "gap-px" : "gap-1")} aria-hidden="true">
               {ponds.map(({ pond, logs }) => {
                 const done = logs.some((log) => log.date.toISOString().slice(0, 10) === today);
                 return (
                   <span
                     key={pond.id}
-                    title={`${pond.name}: ${done ? "logged" : "not logged"}`}
+                    title={`${pond.name}: ${done ? t("overview.logged") : t("overview.notLogged")}`}
                     className={cx("h-2 flex-1 rounded-full", done ? "bg-positive" : "bg-surface-3")}
                   />
                 );
               })}
             </div>
             <p className="mt-3 text-sm text-ink-3">
-              {loggedToday === 0
-                ? "No entries yet today. Workers log from the Daily log on their phones."
-                : `${loggedToday} of ${ponds.length} ponds have today's feed and mortality recorded.`}
+              {loggedToday === 0 ? t("overview.noEntriesToday") : t("overview.entriesToday", { done: loggedToday, total: ponds.length })}
             </p>
           </Card>
 
           <Card>
             <CardHeader
-              title="Needs attention"
-              description={insights.length === 0 ? "Nothing needs attention." : undefined}
+              title={t("overview.needsAttention")}
+              description={insights.length === 0 ? t("overview.nothingNeeds") : undefined}
               action={insights.length > 0 ? <Badge>{insights.length}</Badge> : undefined}
             />
             <ul className="mt-3 divide-y divide-line">
-              {insights.slice(0, 3).map((insight) => (
+              {insights.slice(0, 4).map((insight) => (
                 <InsightRow key={insight.title} insight={insight} />
               ))}
             </ul>
             {insights.length === 0 && <div className="h-4" />}
           </Card>
-
         </aside>
       </div>
 
       <Card className="mt-6">
-        <CardHeader title="Ponds" description="Current cycle performance for each pond." />
-        <nav aria-label="Filter by stage" className="mt-4 overflow-x-auto px-5">
+        <CardHeader title={t("nav.ponds")} description={t("overview.pondsDescription")} />
+        <nav aria-label={t("overview.filterStage")} className="mt-4 overflow-x-auto px-5">
           <ul className="flex min-w-max gap-1.5">
-            {[{ key: null, label: "All", color: null, count: ponds.length }, ...filters].map((filter) => {
+            {[{ key: null, label: t("overview.all"), color: null, count: ponds.length }, ...filters].map((filter) => {
               const active = filter.key === activeFilter;
               const disabled = filter.key !== null && filter.count === 0;
               return (
@@ -300,27 +439,28 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
           </ul>
         </nav>
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm">
+          <table className="w-full min-w-[1180px] text-sm">
             <thead>
               <tr className="border-y border-line bg-surface-2 text-left text-xs font-medium text-ink-3">
-                <th className="px-5 py-2.5 font-medium">Pond</th>
-                <th className="px-3 py-2.5 font-medium">Stage</th>
-                <th className="px-3 py-2.5 text-right font-medium">Avg weight</th>
-                <th className="px-3 py-2.5 text-right font-medium">Est. stock</th>
-                <th className="px-3 py-2.5 text-right font-medium">Feed to date</th>
+                <th className="px-5 py-2.5 font-medium">{t("table.pond")}</th>
+                <th className="px-3 py-2.5 font-medium">{t("table.stage")}</th>
+                <th className="px-3 py-2.5 font-medium">{t("table.health")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("table.avgWeight")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("table.estStock")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("table.costCycle")}</th>
                 <th className="px-3 py-2.5 text-right font-medium">
-                  <abbr title="Feed conversion ratio: kg of feed per kg of fish, from the latest sampling" className="no-underline">
+                  <abbr title={t("table.fcrTitle")} className="no-underline">
                     FCR
                   </abbr>
                 </th>
-                <th className="px-3 py-2.5 text-right font-medium">Dead</th>
-                <th className="px-3 py-2.5 font-medium">Daily feed, 60 days</th>
-                <th className="px-3 py-2.5 font-medium">Last entry</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("table.dead")}</th>
+                <th className="px-3 py-2.5 font-medium">{t("table.dailyFeed60")}</th>
+                <th className="px-3 py-2.5 font-medium">{t("table.lastEntry")}</th>
                 <th className="w-10 px-3 py-2.5" />
               </tr>
             </thead>
             <tbody>
-              {tablePonds.map(({ pond, metrics, logs, cycle }) => {
+              {tablePonds.map(({ pond, metrics, logs, cycle, health }) => {
                 const hasData = Boolean(metrics.lastLogDate);
                 const recent = logs
                   .map((log) => ({ key: log.date.toISOString().slice(0, 10), kg: log.feedKg }))
@@ -333,25 +473,44 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
                       <Link href={`/ponds/${pond.id}`} className="font-semibold text-ink hover:text-brand">
                         {pond.name}
                       </Link>
-                      <p className="text-xs text-ink-3">{pond.species ?? (hasData ? "Species not set" : "Not stocked")}</p>
+                      <p className="text-xs text-ink-3">{pond.species ?? (hasData ? t("table.speciesNotSet") : t("harvestability.unset"))}</p>
                     </td>
                     <td className="px-3 py-3">
                       <StageBadge cycle={cycle} />
                       <CycleProgress cycle={cycle} today={today} />
                     </td>
+                    <td className="px-3 py-3">
+                      {health ? <HealthBadge level={health.level} /> : <span className="text-xs text-ink-3">—</span>}
+                    </td>
                     <td className="px-3 py-3 text-right tabular-nums text-ink">
                       {metrics.latestSampling ? formatAbw(metrics.latestSampling.avgWeightKg) : <span className="text-ink-3">—</span>}
                     </td>
-                    <td className="px-3 py-3 text-right font-medium tabular-nums text-ink">
-                      {hasData ? formatKg(metrics.estimatedHarvestKg, 0) : <span className="font-normal text-ink-3">—</span>}
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {hasData ? (
+                        <>
+                          <p className="font-medium text-ink">{formatKg(metrics.estimatedHarvestKg, 0)}</p>
+                          <p className="text-xs text-ink-3">{t("unit.boxes", { n: estimateBoxes(metrics.estimatedHarvestKg, boxKg) })}</p>
+                        </>
+                      ) : (
+                        <span className="text-ink-3">—</span>
+                      )}
                     </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-ink-2">
-                      {hasData ? formatKg(metrics.totals.feedKg, 0) : <span className="text-ink-3">—</span>}
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {hasData ? (
+                        <>
+                          <p className="text-ink">{formatRm(metrics.totals.feedCostRm, 0)}</p>
+                          <p className="text-xs text-ink-3">
+                            {t("table.thisMonth", { cost: formatRm(monthCost.thisMonth.byPond.get(pond.id) ?? 0, 0) })}
+                          </p>
+                        </>
+                      ) : (
+                        <span className="text-ink-3">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <FcrValue fcr={hasData ? metrics.realizedFcr : null} target={pond.assumedFcr} />
                       {hasData && metrics.realizedFcr !== null && (
-                        <p className="text-xs text-ink-3">target {pond.assumedFcr}</p>
+                        <p className="text-xs text-ink-3">{t("fcr.target", { target: pond.assumedFcr })}</p>
                       )}
                     </td>
                     <td className="px-3 py-3 text-right tabular-nums text-ink-2">
@@ -359,24 +518,24 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
                     </td>
                     <td className="px-3 py-3">
                       {hasData ? (
-                        <Sparkline values={recent} label={`${pond.name} daily feed trend`} />
+                        <Sparkline values={recent} label={t("table.sparkline", { pond: pond.name })} />
                       ) : (
                         <span className="text-xs text-ink-3">—</span>
                       )}
                     </td>
                     <td className="px-3 py-3">
                       {metrics.lastLogDate ? (
-                        <LastEntry dayKey={metrics.lastLogDate} today={today} />
+                        <LastEntry label={fmt.relativeDays(metrics.lastLogDate, today)} dayKey={metrics.lastLogDate} today={today} date={fmt.dayKey(metrics.lastLogDate)} />
                       ) : (
                         <Link href={`/import?pond=${pond.id}`} className="text-xs font-medium text-brand hover:underline">
-                          Import history
+                          {t("table.importHistory")}
                         </Link>
                       )}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Link
                         href={`/ponds/${pond.id}`}
-                        aria-label={`Open ${pond.name}`}
+                        aria-label={t("table.open", { pond: pond.name })}
                         className="inline-flex size-7 items-center justify-center rounded-md text-ink-3 group-hover:text-ink"
                       >
                         <ChevronRightIcon className="size-4" />
@@ -388,14 +547,22 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
             </tbody>
           </table>
         </div>
+        {tablePonds.length < filteredPonds.length && (
+          <Link
+            href={activeFilter ? `/?stage=${activeFilter}&all=1` : "/?all=1"}
+            scroll={false}
+            className="flex items-center justify-center gap-1 border-t border-line px-5 py-3 text-sm font-medium text-brand hover:bg-surface-2"
+          >
+            {t("overview.showAllPonds", { n: filteredPonds.length })}
+            <ArrowRightIcon className="size-4" />
+          </Link>
+        )}
       </Card>
 
       <Card className="mt-6">
-        <CardHeader title="Recent entries" description="Latest records from the daily log." />
+        <CardHeader title={t("overview.recentEntries")} description={t("overview.recentDescription")} />
         {activity.length === 0 ? (
-          <p className="px-5 pt-3 pb-5 text-sm text-ink-3">
-            Entries made in the app appear here as soon as they&apos;re saved.
-          </p>
+          <p className="px-5 pt-3 pb-5 text-sm text-ink-3">{t("overview.recentEmpty")}</p>
         ) : (
           <ul className="mt-3 grid grid-cols-1 border-t border-line sm:grid-cols-2 xl:grid-cols-3">
             {activity.map((log) => (
@@ -403,10 +570,11 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
                 <div className="min-w-0">
                   <p className="font-medium text-ink">
                     {log.pond.name}
-                    <span className="font-normal text-ink-3"> · {formatDay(log.date, { year: false })}</span>
+                    <span className="font-normal text-ink-3"> · {fmt.day(log.date, { year: false })}</span>
                   </p>
                   <p className="truncate text-ink-3">
-                    {log.bags > 0 ? `${log.feedType?.code} ${formatBags(log.bags)}` : "No feeding"} · {log.deadCount} dead
+                    {log.bags > 0 ? `${log.feedType?.code} ${fmt.bags(log.bags)}` : t("log.noFeeding")} ·{" "}
+                    {t("log.deadCount", { n: log.deadCount })}
                   </p>
                 </div>
                 <span className="shrink-0 text-xs text-ink-3">{log.recordedBy ?? "—"}</span>
@@ -419,13 +587,12 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
   );
 }
 
-function LastEntry({ dayKey, today }: { dayKey: string; today: string }) {
-  const label = relativeDays(dayKey, today);
-  const stale = dayKey < today && label !== "yesterday";
+function LastEntry({ label, dayKey, today, date }: { label: string; dayKey: string; today: string; date: string }) {
+  const stale = daysBetween(dayKey, today) > 1;
   return (
     <div>
       <p className={cx("font-medium", stale ? "text-warning" : "text-ink")}>{label.charAt(0).toUpperCase() + label.slice(1)}</p>
-      <p className="text-xs text-ink-3">{formatDay(dayKeyToDate(dayKey))}</p>
+      <p className="text-xs text-ink-3">{date}</p>
     </div>
   );
 }

@@ -21,7 +21,7 @@ export default function ReportPicker({
   const href = (nextPond: string, nextMonth: string) => `/reports?pond=${nextPond}&month=${nextMonth}`;
   const previous = months[index - 1];
   const next = months[index + 1];
-  const arrow = "flex size-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-2 shadow-xs";
+  const arrow = "flex size-10 items-center justify-center rounded-lg border border-line bg-surface text-ink-2";
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">

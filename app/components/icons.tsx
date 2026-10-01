@@ -22,7 +22,7 @@ function Icon({ children, ...props }: IconProps) {
 export function BrandMark({ className = "size-8" }: { className?: string }) {
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-[#14a3ad] to-[#0b5f6a] text-white shadow-sm ring-1 ring-white/10 ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-md bg-brand text-brand-ink ${className}`}
       aria-hidden="true"
     >
       <svg viewBox="0 0 32 32" className="size-[62%]" fill="none">
@@ -77,3 +77,9 @@ export const UserIcon = (p: IconProps) => <Icon {...p}><circle cx="12" cy="8" r=
 export const ClockIcon = (p: IconProps) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></Icon>;
 export const XIcon = (p: IconProps) => <Icon {...p}><path d="M6 6l12 12M18 6 6 18" /></Icon>;
 export const MenuIcon = (p: IconProps) => <Icon {...p}><path d="M4 7h16M4 12h16M4 17h16" /></Icon>;
+export const GlobeIcon = (p: IconProps) => <Icon {...p}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z" /></Icon>;
+export const HarvestIcon = (p: IconProps) => <Icon {...p}><path d="M3 10h18l-2 9a2 2 0 0 1-2 1.6H7A2 2 0 0 1 5 19l-2-9Z" /><path d="M8 10c0-2.2 1.8-4 4-4s4 1.8 4 4M7 6.5 9 4M17 6.5 15 4" /></Icon>;
+export const MapIcon = (p: IconProps) => <Icon {...p}><path d="m3 6 6-2 6 2 6-2v14l-6 2-6-2-6 2V6Z" /><path d="M9 4v14M15 6v14" /></Icon>;
+export const HeartPulseIcon = (p: IconProps) => <Icon {...p}><path d="M20.8 8.6A5 5 0 0 0 12 5.5a5 5 0 0 0-8.8 3.1C3.2 13.4 12 20 12 20s8.8-6.6 8.8-11.4Z" /><path d="M3.5 12h4l1.5-3 3 6 1.5-3h7" /></Icon>;
+export const RulerIcon = (p: IconProps) => <Icon {...p}><rect x="2.5" y="8" width="19" height="8" rx="1.5" /><path d="M6 8v3M10 8v4M14 8v3M18 8v4" /></Icon>;
+export const BoxIcon = (p: IconProps) => <Icon {...p}><path d="M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8Z" /><path d="M3 8l2-4h14l2 4M10 12h4" /></Icon>;

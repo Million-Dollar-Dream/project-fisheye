@@ -8,11 +8,11 @@ import {
   dateToDayKey,
   dayKeyToDate,
   daysBetween,
-  formatDay,
   isDayKey,
   todayKey,
 } from "@/lib/dates";
-import { formatAbw, formatBags } from "@/lib/format";
+import { formatAbw } from "@/lib/format";
+import { getI18n } from "@/lib/i18n/server";
 import { ChevronLeftIcon } from "../../components/icons";
 import DailyEntryForm from "./DailyEntryForm";
 import SamplingForm from "./SamplingForm";
@@ -21,7 +21,8 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: PageProps<"/log/[pondId]">): Promise<Metadata> {
   const pond = await prisma.pond.findUnique({ where: { id: Number((await params).pondId) } });
-  return { title: pond ? `Log ${pond.name}` : "Daily log" };
+  const { t } = await getI18n();
+  return { title: pond ? t("log.logPond", { pond: pond.name }) : t("nav.dailyLog") };
 }
 
 export default async function PondEntryPage({ params, searchParams }: PageProps<"/log/[pondId]">) {
@@ -30,6 +31,7 @@ export default async function PondEntryPage({ params, searchParams }: PageProps<
   if (!Number.isInteger(pondId)) notFound();
 
   const today = todayKey();
+  const { t, fmt } = await getI18n();
   const requested = typeof query.date === "string" ? query.date : today;
   const date = isDayKey(requested) && requested <= today ? requested : today;
   const returnTo = typeof query.returnTo === "string" && query.returnTo.startsWith("/ponds/") ? query.returnTo : "";
@@ -75,22 +77,22 @@ export default async function PondEntryPage({ params, searchParams }: PageProps<
         className="mb-4 inline-flex h-9 items-center gap-1 rounded-lg pr-2 text-sm font-medium text-ink-2 hover:text-ink"
       >
         <ChevronLeftIcon className="size-4" />
-        {returnTo ? "Back to records" : "All ponds"}
+        {returnTo ? t("log.backToRecords") : t("log.allPonds")}
       </Link>
 
       <header className="mb-5">
         <h1 className="text-2xl font-semibold tracking-tight text-ink">{pond.name}</h1>
         <p className="mt-1 text-sm text-ink-2">
-          {formatDay(dayKeyToDate(date), { weekday: true })}
+          {fmt.dayKey(date, { weekday: true })}
           {dayOfCulture !== null && dayOfCulture >= 0 && (
-            <span className="text-ink-3"> · Day {dayOfCulture} of culture</span>
+            <span className="text-ink-3"> · {t("log.dayOfCulture", { day: dayOfCulture })}</span>
           )}
         </p>
       </header>
 
       {tooOldForWorker ? (
-        <p className="rounded-xl border border-warning/30 bg-warning-soft p-4 text-sm text-warning">
-          This day is more than a week ago. Ask the farm owner to correct it.
+        <p className="rounded-lg border border-warning/30 bg-warning-soft p-4 text-sm text-warning">
+          {t("log.tooOld")}
         </p>
       ) : (
         <DailyEntryForm
@@ -119,7 +121,10 @@ export default async function PondEntryPage({ params, searchParams }: PageProps<
                   feedTypeId: previous.feedTypeId,
                   feedCode: previous.feedType?.code ?? null,
                   bags: previous.bags,
+                  feedKg: previous.feedKg,
                   deadCount: previous.deadCount,
+                  note: previous.note,
+                  recordedBy: previous.recordedBy,
                 }
               : null
           }
@@ -134,7 +139,7 @@ export default async function PondEntryPage({ params, searchParams }: PageProps<
           lastSampling={
             lastSampling
               ? {
-                  label: `${formatAbw(lastSampling.avgWeightKg)} on ${formatDay(lastSampling.date)}`,
+                  label: t("log.sampleLabel", { abw: formatAbw(lastSampling.avgWeightKg), date: fmt.day(lastSampling.date) }),
                   daysAgo: daysSinceSampling ?? 0,
                 }
               : null
@@ -144,14 +149,14 @@ export default async function PondEntryPage({ params, searchParams }: PageProps<
 
       {history.length > 0 && (
         <section className="mt-6">
-          <h2 className="mb-2 text-sm font-semibold text-ink-2">Previous 7 days</h2>
-          <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-surface">
+          <h2 className="mb-2 text-sm font-semibold text-ink-2">{t("log.previous7")}</h2>
+          <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
             {history.map((log) => (
               <li key={log.id} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-                <span className="text-ink-2">{formatDay(log.date, { weekday: true, year: false })}</span>
+                <span className="text-ink-2">{fmt.day(log.date, { weekday: true, year: false })}</span>
                 <span className="tabular-nums text-ink">
-                  {log.bags > 0 ? `${log.feedType?.code} · ${formatBags(log.bags)}` : "No feeding"}
-                  <span className="text-ink-3"> · {log.deadCount} dead</span>
+                  {log.bags > 0 ? `${log.feedType?.code} · ${fmt.bags(log.bags)}` : t("log.noFeeding")}
+                  <span className="text-ink-3"> · {t("log.deadCount", { n: log.deadCount })}</span>
                 </span>
               </li>
             ))}

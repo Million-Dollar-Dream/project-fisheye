@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/session";
 import { daysBetween, dayKeyToDate, isDayKey, todayKey } from "@/lib/dates";
+import { getI18n } from "@/lib/i18n/server";
+import type { T } from "@/lib/i18n/translate";
 
 export type FormState = {
   status: "idle" | "error" | "success";
@@ -22,18 +24,19 @@ function numberField(formData: FormData, name: string) {
   return Number.isFinite(value) ? value : NaN;
 }
 
-function checkDate(date: string, role: "owner" | "worker"): string | null {
-  if (!isDayKey(date)) return "Choose a valid date.";
+function checkDate(date: string, role: "owner" | "worker", t: T): string | null {
+  if (!isDayKey(date)) return t("error.validDate");
   const age = daysBetween(date, todayKey());
-  if (age < 0) return "You can't record a future date.";
+  if (age < 0) return t("error.futureDate");
   if (role === "worker" && age > WORKER_EDIT_WINDOW_DAYS) {
-    return `Workers can record up to ${WORKER_EDIT_WINDOW_DAYS} days back. Ask the owner to fix older days.`;
+    return t("error.workerWindow", { n: WORKER_EDIT_WINDOW_DAYS });
   }
   return null;
 }
 
 export async function saveDailyLog(_prev: FormState, formData: FormData): Promise<FormState> {
   const session = await requireSession();
+  const { t } = await getI18n();
   const pondId = Number(formData.get("pondId"));
   const date = String(formData.get("date") ?? "");
   const feedTypeRaw = String(formData.get("feedTypeId") ?? "");
@@ -43,25 +46,25 @@ export async function saveDailyLog(_prev: FormState, formData: FormData): Promis
   const returnTo = String(formData.get("returnTo") ?? "");
 
   const fieldErrors: Record<string, string> = {};
-  const dateError = checkDate(date, session.role);
+  const dateError = checkDate(date, session.role, t);
   if (dateError) fieldErrors.date = dateError;
-  if (!Number.isFinite(bags) || bags < 0 || bags > 200) fieldErrors.bags = "Enter bags between 0 and 200.";
+  if (!Number.isFinite(bags) || bags < 0 || bags > 200) fieldErrors.bags = t("error.bagsRange");
   if (!Number.isInteger(deadCount) || deadCount < 0 || deadCount > 100000) {
-    fieldErrors.deadCount = "Enter a whole number of fish.";
+    fieldErrors.deadCount = t("error.wholeFish");
   }
 
   const feedTypeId = feedTypeRaw && feedTypeRaw !== "none" ? Number(feedTypeRaw) : null;
-  if (bags > 0 && !feedTypeId) fieldErrors.feedTypeId = "Choose the feed type used.";
+  if (bags > 0 && !feedTypeId) fieldErrors.feedTypeId = t("error.chooseFeedUsed");
 
   const [pond, feedType] = await Promise.all([
     Number.isInteger(pondId) ? prisma.pond.findUnique({ where: { id: pondId } }) : null,
     feedTypeId ? prisma.feedType.findUnique({ where: { id: feedTypeId } }) : null,
   ]);
-  if (!pond) return { status: "error", message: "This pond no longer exists." };
-  if (feedTypeId && !feedType) fieldErrors.feedTypeId = "That feed type no longer exists.";
+  if (!pond) return { status: "error", message: t("error.pondGone") };
+  if (feedTypeId && !feedType) fieldErrors.feedTypeId = t("error.feedGone");
 
   if (Object.keys(fieldErrors).length > 0) {
-    return { status: "error", message: "Check the highlighted fields.", fieldErrors };
+    return { status: "error", message: t("form.checkFields"), fieldErrors };
   }
 
   const usedFeed = bags > 0 ? feedType : null;
@@ -93,26 +96,27 @@ export async function saveDailyLog(_prev: FormState, formData: FormData): Promis
 
 export async function saveSampling(_prev: FormState, formData: FormData): Promise<FormState> {
   const session = await requireSession();
+  const { t } = await getI18n();
   const pondId = Number(formData.get("pondId"));
   const date = String(formData.get("date") ?? "");
   const fishCount = numberField(formData, "fishCount");
   const totalWeightKg = numberField(formData, "totalWeightKg");
 
   const fieldErrors: Record<string, string> = {};
-  const dateError = checkDate(date, session.role);
+  const dateError = checkDate(date, session.role, t);
   if (dateError) fieldErrors.date = dateError;
   if (fishCount === null || !Number.isInteger(fishCount) || fishCount < 1 || fishCount > 10000) {
-    fieldErrors.fishCount = "Enter how many fish were weighed.";
+    fieldErrors.fishCount = t("error.sampleFish");
   }
   if (totalWeightKg === null || !Number.isFinite(totalWeightKg) || totalWeightKg <= 0 || totalWeightKg > 10000) {
-    fieldErrors.totalWeightKg = "Enter their total weight in kg.";
+    fieldErrors.totalWeightKg = t("error.sampleWeight");
   }
   if (Object.keys(fieldErrors).length > 0) {
-    return { status: "error", message: "Check the highlighted fields.", fieldErrors };
+    return { status: "error", message: t("form.checkFields"), fieldErrors };
   }
 
   const pond = await prisma.pond.findUnique({ where: { id: pondId } });
-  if (!pond) return { status: "error", message: "This pond no longer exists." };
+  if (!pond) return { status: "error", message: t("error.pondGone") };
 
   await prisma.sampling.create({
     data: {
@@ -125,7 +129,7 @@ export async function saveSampling(_prev: FormState, formData: FormData): Promis
   });
 
   revalidatePath("/", "layout");
-  return { status: "success", message: "Sample saved." };
+  return { status: "success", message: t("success.sampleSaved") };
 }
 
 export async function deleteDailyLog(formData: FormData) {

@@ -28,12 +28,21 @@ See [`Screenshot_2026-09-20_at_10.23.41_PM.png`](./Screenshot_2026-09-20_at_10.2
 
 ```bash
 npm install
-npx prisma migrate deploy   # create dev.db
+npx prisma migrate deploy   # apply migrations to the Postgres at DATABASE_URL
 npx prisma db seed          # feed catalogue, Ponds 1–7, and Pond 1 imported from data/*.csv
 npm run dev                 # http://localhost:3000
 ```
 
 Choose **Farm owner** for the dashboard or **Farm worker** for the phone daily log.
+
+Optional demo data (local databases only; pass `-- --force` to write elsewhere):
+
+```bash
+npm run db:mock             # made-up history for Ponds 2–7
+npm run db:scenario         # a separate "100 ponds across 7 farms" scenario in its own schema
+```
+
+Once the scenario exists, the sidebar shows a **Real farm / 100 ponds** switch. It only changes which data this browser sees; the real data is never touched.
 
 ## What the app does
 

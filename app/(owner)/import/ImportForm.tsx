@@ -5,10 +5,10 @@ import { importSpreadsheet } from "@/app/actions/owner";
 import type { FormState } from "@/app/actions/logs";
 import { PondReportError, parsePondReport } from "@/lib/import/pondReport";
 import { buildImportPlan, type FeedCatalogEntry, type ImportPlan } from "@/lib/import/plan";
-import { formatMonth } from "@/lib/dates";
 import { formatNumber, formatRm } from "@/lib/format";
 import { AlertIcon, CheckCircleIcon, FileIcon, InfoIcon, UploadIcon, XIcon } from "@/app/components/icons";
 import { Badge, Card, CardHeader, Field, buttonClass, cx, inputClass } from "@/app/components/ui";
+import { useI18n } from "@/app/components/I18nProvider";
 
 type PondOption = { id: number; name: string; records: number };
 
@@ -21,6 +21,7 @@ export default function ImportForm({
   catalog: FeedCatalogEntry[];
   defaultPondId: number | null;
 }) {
+  const { t, fmt } = useI18n();
   const [state, formAction, pending] = useActionState<FormState, FormData>(importSpreadsheet, { status: "idle" });
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export default function ImportForm({
       const parsed = parsePondReport(await file.text());
       setPlan(buildImportPlan(parsed, catalog));
     } catch (error) {
-      setParseError(error instanceof PondReportError ? error.message : "This file could not be read as a CSV.");
+      setParseError(error instanceof PondReportError ? error.message : t("error.readCsv"));
     }
 
     // Suggest a target pond from the file name, e.g. "Pond 1 - ....csv".
@@ -86,7 +87,7 @@ export default function ImportForm({
             }
           }}
           className={cx(
-            "m-5 flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors",
+            "m-5 flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center transition-colors",
             dragging ? "border-brand bg-brand-soft" : "border-line-strong hover:border-brand/60 hover:bg-surface-2",
           )}
         >
@@ -100,8 +101,8 @@ export default function ImportForm({
             </span>
           ) : (
             <>
-              <span className="mt-4 text-sm font-semibold text-ink">Drop the CSV here, or click to choose</span>
-              <span className="mt-1 text-sm text-ink-3">In Excel or Google Sheets: File → Download → CSV</span>
+              <span className="mt-4 text-sm font-semibold text-ink">{t("import.drop")}</span>
+              <span className="mt-1 text-sm text-ink-3">{t("import.dropHint")}</span>
             </>
           )}
           <input
@@ -121,14 +122,14 @@ export default function ImportForm({
           <div className="-mt-2 flex justify-center pb-5">
             <button type="button" onClick={clearFile} className={buttonClass("ghost", "sm")}>
               <XIcon className="size-3.5" />
-              Choose a different file
+              {t("import.differentFile")}
             </button>
           </div>
         )}
       </Card>
 
       {parseError && (
-        <div role="alert" className="flex items-start gap-3 rounded-xl border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">
+        <div role="alert" className="flex items-start gap-3 rounded-lg border border-danger/25 bg-danger-soft px-4 py-3 text-sm text-danger">
           <AlertIcon className="mt-0.5 size-4 shrink-0" />
           <p>{parseError}</p>
         </div>
@@ -136,24 +137,26 @@ export default function ImportForm({
 
       {plan && (
         <>
-          <section aria-label="What will be imported" className="grid grid-cols-2 gap-4 lg:grid-cols-5">
-            <Summary label="Months" value={formatNumber(plan.totals.months, 0)} detail={`${formatMonth(plan.months[0].monthKey)} – ${formatMonth(plan.months.at(-1)!.monthKey)}`} />
-            <Summary label="Daily records" value={formatNumber(plan.totals.days, 0)} detail={`${formatNumber(plan.totals.samplings, 0)} samples`} />
-            <Summary label="Feed" value={`${formatNumber(plan.totals.feedKg, 0)} kg`} detail={`${formatNumber(plan.totals.bags, 1)} bags`} />
-            <Summary label="Feed cost" value={formatRm(plan.totals.feedCostRm, 0)} detail="At the sheet's prices" />
-            <Summary label="Dead fish" value={formatNumber(plan.totals.deadCount, 0)} detail="From daily rows" />
+          <section aria-label={t("import.whatImported")} className="grid grid-cols-2 gap-4 lg:grid-cols-5">
+            <Summary label={t("import.months")} value={formatNumber(plan.totals.months, 0)} detail={`${fmt.month(plan.months[0].monthKey)} – ${fmt.month(plan.months.at(-1)!.monthKey)}`} />
+            <Summary label={t("import.dailyRecords")} value={formatNumber(plan.totals.days, 0)} detail={t("import.samples", { n: formatNumber(plan.totals.samplings, 0) })} />
+            <Summary label={t("entry.feed")} value={`${formatNumber(plan.totals.feedKg, 0)} kg`} detail={t("unit.bags", { n: formatNumber(plan.totals.bags, 1) })} />
+            <Summary label={t("overview.feedCost")} value={formatRm(plan.totals.feedCostRm, 0)} detail={t("import.atSheetPrices")} />
+            <Summary label={t("overview.deadFish")} value={formatNumber(plan.totals.deadCount, 0)} detail={t("import.fromDailyRows")} />
           </section>
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
             <Card>
               <CardHeader
-                title="Cross-check"
-                description={
-                  warnings.length > 0
-                    ? `${warnings.length} ${warnings.length === 1 ? "place where" : "places where"} the sheet disagrees with itself. Daily rows are treated as the source of truth.`
-                    : "The sheet's totals match its daily rows."
+                title={t("import.crossCheck")}
+                description={warnings.length > 0 ? t("import.disagrees", { n: warnings.length }) : t("import.matches")}
+                action={
+                  warnings.length > 0 ? (
+                    <Badge tone="warning">{t("import.toReview", { n: warnings.length })}</Badge>
+                  ) : (
+                    <Badge tone="positive">{t("import.clean")}</Badge>
+                  )
                 }
-                action={warnings.length > 0 ? <Badge tone="warning">{warnings.length} to review</Badge> : <Badge tone="positive">Clean</Badge>}
               />
               <ul className="mt-4 divide-y divide-line border-t border-line">
                 {[...warnings, ...notes].map((finding, index) => (
@@ -175,7 +178,7 @@ export default function ImportForm({
                 {plan.findings.length === 0 && (
                   <li className="flex items-center gap-2 px-5 py-4 text-sm text-positive">
                     <CheckCircleIcon className="size-4" />
-                    No issues found.
+                    {t("import.noIssues")}
                   </li>
                 )}
               </ul>
@@ -183,9 +186,9 @@ export default function ImportForm({
 
             <div className="space-y-6">
               <Card>
-                <CardHeader title="Import into" />
+                <CardHeader title={t("import.into")} />
                 <div className="space-y-4 p-5">
-                  <Field label="Pond" htmlFor="target" hint={errors.target}>
+                  <Field label={t("table.pond")} htmlFor="target" hint={errors.target}>
                     <select
                       id="target"
                       name="target"
@@ -195,20 +198,20 @@ export default function ImportForm({
                       required
                     >
                       <option value="" disabled>
-                        Choose a pond
+                        {t("error.choosePond")}
                       </option>
                       {ponds.map((pond) => (
                         <option key={pond.id} value={pond.id}>
                           {pond.name}
-                          {pond.records > 0 ? ` (${pond.records} records)` : ""}
+                          {pond.records > 0 ? ` (${t("settings.records", { n: pond.records })})` : ""}
                         </option>
                       ))}
-                      <option value="new">+ New pond</option>
+                      <option value="new">{t("import.newPond")}</option>
                     </select>
                   </Field>
                   {target === "new" && (
                     <>
-                      <Field label="New pond name" htmlFor="newPondName" hint={errors.newPondName}>
+                      <Field label={t("import.newPondName")} htmlFor="newPondName" hint={errors.newPondName}>
                         <input
                           id="newPondName"
                           name="newPondName"
@@ -219,15 +222,14 @@ export default function ImportForm({
                           className={cx(inputClass, errors.newPondName && "border-danger")}
                         />
                       </Field>
-                      <Field label="Species (optional)" htmlFor="species">
+                      <Field label={t("import.speciesOptional")} htmlFor="species">
                         <input id="species" name="species" maxLength={60} className={inputClass} />
                       </Field>
                     </>
                   )}
                   {targetPond && targetPond.records > 0 && (
                     <p className="rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
-                      {targetPond.name} already has {targetPond.records} records. Days already imported from a spreadsheet
-                      are replaced; days entered in the app are kept.
+                      {t("import.alreadyHas", { pond: targetPond.name, n: targetPond.records })}
                     </p>
                   )}
                   {state.status === "error" && !state.fieldErrors && (
@@ -236,27 +238,27 @@ export default function ImportForm({
                     </p>
                   )}
                   <button type="submit" disabled={pending || !target} className={`${buttonClass("primary")} w-full`}>
-                    {pending ? "Importing…" : `Import ${formatNumber(plan.totals.days, 0)} daily records`}
+                    {pending ? t("import.importing") : t("import.submit", { n: formatNumber(plan.totals.days, 0) })}
                   </button>
                 </div>
               </Card>
 
               <Card>
-                <CardHeader title="By month" />
+                <CardHeader title={t("import.byMonth")} />
                 <table className="mt-3 w-full text-sm tabular-nums">
                   <thead>
                     <tr className="border-y border-line bg-surface-2 text-right text-xs text-ink-3">
-                      <th className="px-5 py-2 text-left font-medium">Month</th>
-                      <th className="px-2 py-2 font-medium">Bags</th>
-                      <th className="px-2 py-2 font-medium">Cost</th>
-                      <th className="px-5 py-2 font-medium">Dead</th>
+                      <th className="px-5 py-2 text-left font-medium">{t("pond.col.month")}</th>
+                      <th className="px-2 py-2 font-medium">{t("pond.col.bags")}</th>
+                      <th className="px-2 py-2 font-medium">{t("pond.col.cost")}</th>
+                      <th className="px-5 py-2 font-medium">{t("table.dead")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {plan.months.map((month) => (
                       <tr key={month.monthKey} className="border-b border-line text-right text-ink-2 last:border-0">
                         <td className="px-5 py-2 text-left text-ink">
-                          {formatMonth(month.monthKey)} <span className="text-xs text-ink-3">M{month.cultureMonth}</span>
+                          {fmt.month(month.monthKey)} <span className="text-xs text-ink-3">M{month.cultureMonth}</span>
                         </td>
                         <td className="px-2 py-2">{formatNumber(month.bags, 1)}</td>
                         <td className="px-2 py-2">{formatRm(month.feedCostRm, 0)}</td>

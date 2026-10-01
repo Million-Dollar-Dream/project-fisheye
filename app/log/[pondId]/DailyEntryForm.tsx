@@ -4,7 +4,9 @@ import { useActionState, useState } from "react";
 import { saveDailyLog, type FormState } from "@/app/actions/logs";
 import { CheckIcon, FeedIcon, MinusIcon, PlusIcon, SkullIcon } from "@/app/components/icons";
 import { buttonClass, cx } from "@/app/components/ui";
-import { formatBags, formatKg, formatRm } from "@/lib/format";
+import { addDays } from "@/lib/dates";
+import { formatKg, formatNumber, formatRm } from "@/lib/format";
+import { useI18n } from "@/app/components/I18nProvider";
 
 type FeedTypeOption = { id: number; code: string; packSizeKg: number; pricePerKg: number };
 
@@ -27,7 +29,10 @@ type Props = {
     feedTypeId: number | null;
     feedCode: string | null;
     bags: number;
+    feedKg: number;
     deadCount: number;
+    note: string | null;
+    recordedBy: string | null;
   } | null;
   defaultFeedTypeId: number | null;
 };
@@ -44,6 +49,7 @@ export default function DailyEntryForm({
   previous,
   defaultFeedTypeId,
 }: Props) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState<FormState, FormData>(saveDailyLog, { status: "idle" });
 
   const initialFeed = existing
@@ -92,38 +98,31 @@ export default function DailyEntryForm({
 
       {existing && (
         <p className="rounded-lg bg-info-soft px-3 py-2 text-sm text-info">
-          Already recorded{existing.recordedBy ? ` by ${existing.recordedBy}` : existing.source === "import" ? " from the spreadsheet" : ""}. Saving
-          will update it.
+          {existing.recordedBy
+            ? t("entry.alreadyBy", { name: existing.recordedBy })
+            : existing.source === "import"
+              ? t("entry.alreadyImport")
+              : t("entry.already")}
         </p>
       )}
 
-      {previous && (
-        <button
-          type="button"
-          onClick={copyPrevious}
-          className="flex w-full items-center justify-between gap-3 rounded-xl border border-dashed border-line-strong bg-surface-2 px-4 py-3 text-left text-sm hover:border-brand/50 hover:bg-brand-soft/40"
-        >
-          <span className="min-w-0">
-            <span className="block font-medium text-ink">Same as last entry</span>
-            <span className="block truncate text-ink-3">
-              {previous.bags > 0 ? `${previous.feedCode} · ${formatBags(previous.bags)}` : "No feeding"}
-            </span>
-          </span>
-          <span className="shrink-0 rounded-lg bg-surface px-3 py-1.5 font-semibold text-brand shadow-xs">Copy</span>
-        </button>
+      {previous ? (
+        <YesterdayBox previous={previous} date={date} onCopy={copyPrevious} />
+      ) : (
+        <p className="rounded-lg border border-dashed border-line-strong px-4 py-3 text-sm text-ink-3">{t("entry.noHistory")}</p>
       )}
 
-      <fieldset className="rounded-xl border border-line bg-surface p-4 shadow-xs">
-        <legend className="sr-only">Feed</legend>
+      <fieldset className="rounded-lg border border-line bg-surface p-4">
+        <legend className="sr-only">{t("entry.feed")}</legend>
         <div className="mb-3 flex items-center gap-2.5">
           <span className="flex size-8 items-center justify-center rounded-lg bg-brand-soft text-brand">
             <FeedIcon className="size-4.5" />
           </span>
-          <h2 className="font-semibold text-ink">Feed given</h2>
+          <h2 className="font-semibold text-ink">{t("entry.feedGiven")}</h2>
         </div>
 
         <p id="feed-type-label" className="mb-2 text-sm font-medium text-ink-2">
-          Feed type
+          {t("entry.feedType")}
         </p>
         <div role="radiogroup" aria-labelledby="feed-type-label" className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {feedTypes.map((feedType) => {
@@ -144,7 +143,7 @@ export default function DailyEntryForm({
               >
                 {feedType.code}
                 <span className={cx("text-[11px] font-normal", active ? "text-brand/80" : "text-ink-3")}>
-                  {feedType.packSizeKg} kg bag
+                  {t("entry.bagKg", { kg: feedType.packSizeKg })}
                 </span>
               </button>
             );
@@ -162,7 +161,7 @@ export default function DailyEntryForm({
               noFeed ? "border-ink-2 bg-surface-3 text-ink ring-1 ring-ink-2" : "border-line text-ink-3 hover:border-line-strong",
             )}
           >
-            No feeding
+            {t("log.noFeeding")}
           </button>
         </div>
         {errors.feedTypeId && <p className="mt-2 text-sm text-danger">{errors.feedTypeId}</p>}
@@ -170,7 +169,7 @@ export default function DailyEntryForm({
         {!noFeed && (
           <>
             <label htmlFor="bags-input" className="mt-5 mb-2 block text-sm font-medium text-ink-2">
-              Bags used
+              {t("entry.bagsUsed")}
             </label>
             <Stepper
               id="bags-input"
@@ -181,7 +180,7 @@ export default function DailyEntryForm({
               inputMode="decimal"
               placeholder="0"
               invalid={Boolean(errors.bags)}
-              unit="bags"
+              unit={t("entry.bagsUnit")}
             />
             <div className="mt-2.5 flex flex-wrap gap-2">
               {QUICK_BAGS.map((value) => (
@@ -208,23 +207,23 @@ export default function DailyEntryForm({
                   <span className="tabular-nums">{formatRm(feedKg * selected.pricePerKg)}</span>
                 </>
               ) : (
-                "Enter bags or tap a quick amount."
+                t("entry.bagsHint")
               )}
             </p>
           </>
         )}
       </fieldset>
 
-      <fieldset className="rounded-xl border border-line bg-surface p-4 shadow-xs">
-        <legend className="sr-only">Mortality</legend>
+      <fieldset className="rounded-lg border border-line bg-surface p-4">
+        <legend className="sr-only">{t("overview.deadFish")}</legend>
         <div className="mb-3 flex items-center gap-2.5">
           <span className="flex size-8 items-center justify-center rounded-lg bg-danger-soft text-danger">
             <SkullIcon className="size-4.5" />
           </span>
-          <h2 className="font-semibold text-ink">Dead fish found</h2>
+          <h2 className="font-semibold text-ink">{t("entry.deadFound")}</h2>
         </div>
         <label htmlFor="dead-input" className="sr-only">
-          Dead fish count
+          {t("entry.deadCount")}
         </label>
         <Stepper
           id="dead-input"
@@ -236,19 +235,19 @@ export default function DailyEntryForm({
           inputMode="numeric"
           placeholder="0"
           invalid={Boolean(errors.deadCount)}
-          unit="fish"
+          unit={t("unit.fish")}
         />
         {errors.deadCount && <p className="mt-2 text-sm text-danger">{errors.deadCount}</p>}
       </fieldset>
 
-      <details className="group rounded-xl border border-line bg-surface shadow-xs" open={Boolean(existing?.note)}>
+      <details className="group rounded-lg border border-line bg-surface" open={Boolean(existing?.note)}>
         <summary className="flex h-12 cursor-pointer items-center justify-between px-4 text-sm font-medium text-ink-2">
-          Add a note (optional)
+          {t("entry.addNote")}
           <PlusIcon className="size-4 transition-transform group-open:rotate-45" />
         </summary>
         <div className="px-4 pb-4">
           <label htmlFor="note" className="sr-only">
-            Note
+            {t("pond.note")}
           </label>
           <textarea
             id="note"
@@ -256,7 +255,7 @@ export default function DailyEntryForm({
             rows={3}
             maxLength={500}
             defaultValue={existing?.note ?? ""}
-            placeholder="e.g. Fish slow to feed, water looked cloudy"
+            placeholder={t("entry.notePlaceholder")}
             className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 focus:border-brand focus:outline-none"
           />
         </div>
@@ -272,7 +271,7 @@ export default function DailyEntryForm({
         <div className="mx-auto max-w-2xl">
           <button type="submit" disabled={pending} className={`${buttonClass("primary", "lg")} w-full`}>
             <CheckIcon className="size-5" />
-            {pending ? "Saving…" : existing ? `Update ${pondName}` : `Save ${pondName}`}
+            {pending ? t("form.saving") : existing ? t("entry.update", { pond: pondName }) : t("entry.save", { pond: pondName })}
           </button>
         </div>
       </div>
@@ -303,10 +302,11 @@ function Stepper({
   invalid: boolean;
   unit: string;
 }) {
+  const { t } = useI18n();
   return (
     <div
       className={cx(
-        "flex h-14 items-stretch overflow-hidden rounded-xl border bg-surface",
+        "flex h-14 items-stretch overflow-hidden rounded-lg border bg-surface",
         invalid ? "border-danger" : "border-line-strong focus-within:border-brand",
       )}
     >
@@ -314,7 +314,7 @@ function Stepper({
         type="button"
         onClick={() => onStep(-step)}
         className="flex w-16 items-center justify-center border-r border-line text-ink-2 active:bg-surface-3"
-        aria-label={`Decrease by ${step}`}
+        aria-label={t("entry.decrease", { step })}
       >
         <MinusIcon className="size-5" />
       </button>
@@ -338,10 +338,68 @@ function Stepper({
         type="button"
         onClick={() => onStep(step)}
         className="flex w-16 items-center justify-center border-l border-line text-ink-2 active:bg-surface-3"
-        aria-label={`Increase by ${step}`}
+        aria-label={t("entry.increase", { step })}
       >
         <PlusIcon className="size-5" />
       </button>
     </div>
+  );
+}
+
+// What happened in this pond the day before, so the worker picks up where
+// the last shift left off. Falls back to the latest entry, flagged, when the
+// day before wasn't logged.
+function YesterdayBox({
+  previous,
+  date,
+  onCopy,
+}: {
+  previous: NonNullable<Props["previous"]>;
+  date: string;
+  onCopy: () => void;
+}) {
+  const { t, fmt } = useI18n();
+  const isDayBefore = previous.date === addDays(date, -1);
+  return (
+    <section aria-labelledby="yesterday-heading" className="rounded-lg border border-line bg-surface">
+      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
+        <h2 id="yesterday-heading" className="font-mono text-xs tracking-wide text-ink-3 uppercase">
+          {isDayBefore ? t("entry.yesterday") : t("entry.lastEntry")} · {fmt.dayKey(previous.date, { weekday: true, year: false })}
+        </h2>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="shrink-0 rounded-md px-2 py-1 text-sm font-semibold text-brand hover:bg-brand-soft"
+        >
+          {t("entry.copy")}
+        </button>
+      </div>
+      {!isDayBefore && <p className="bg-warning-soft px-4 py-2 text-sm text-warning">{t("entry.yesterdayMissing")}</p>}
+      <dl className="grid grid-cols-2 divide-x divide-line">
+        <div className="px-4 py-3">
+          <dt className="text-xs text-ink-3">{t("entry.feedGiven")}</dt>
+          <dd className="mt-0.5 text-lg font-semibold text-ink tabular-nums">
+            {previous.bags > 0 ? fmt.bags(previous.bags) : t("log.noFeeding")}
+          </dd>
+          {previous.bags > 0 && (
+            <dd className="text-sm text-ink-2 tabular-nums">
+              {previous.feedCode} · {formatKg(previous.feedKg, 0)}
+            </dd>
+          )}
+        </div>
+        <div className="px-4 py-3">
+          <dt className="text-xs text-ink-3">{t("overview.deadFish")}</dt>
+          <dd className={cx("mt-0.5 text-lg font-semibold tabular-nums", previous.deadCount > 5 ? "text-danger" : "text-ink")}>
+            {formatNumber(previous.deadCount, 0)}
+          </dd>
+        </div>
+      </dl>
+      {(previous.note || previous.recordedBy) && (
+        <p className="border-t border-line px-4 py-2.5 text-sm text-ink-2">
+          {previous.note && <span className="text-ink">&ldquo;{previous.note}&rdquo; </span>}
+          {previous.recordedBy && <span className="text-ink-3">— {previous.recordedBy}</span>}
+        </p>
+      )}
+    </section>
   );
 }
