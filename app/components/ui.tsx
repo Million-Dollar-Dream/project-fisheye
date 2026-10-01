@@ -1,6 +1,6 @@
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { TrendDownIcon, TrendUpIcon } from "./icons";
+import { AnimatedTabs, CountUp } from "./motion";
 
 export function cx(...classes: (string | false | null | undefined)[]) {
   return classes.filter(Boolean).join(" ");
@@ -19,20 +19,20 @@ type ButtonSize = "sm" | "md" | "lg";
 
 export function buttonClass(variant: ButtonVariant = "primary", size: ButtonSize = "md") {
   return cx(
-    "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+    "inline-flex shrink-0 items-center justify-center gap-2 rounded-md font-medium transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 motion-reduce:active:scale-100",
     size === "sm" && "h-8 px-3 text-xs",
     size === "md" && "h-10 px-4 text-sm",
     size === "lg" && "h-12 px-5 text-base",
-    variant === "primary" && "bg-brand text-brand-ink shadow-sm hover:bg-brand-strong",
+    variant === "primary" && "bg-brand text-brand-ink hover:bg-brand-strong",
     variant === "secondary" &&
-      "border border-line bg-surface text-ink shadow-xs hover:border-line-strong hover:bg-surface-2",
+      "border border-line-strong bg-surface text-ink hover:bg-surface-2",
     variant === "ghost" && "text-ink-2 hover:bg-surface-3 hover:text-ink",
     variant === "danger" && "border border-line bg-surface text-danger hover:bg-danger-soft",
   );
 }
 
 export const inputClass =
-  "h-10 w-full rounded-lg border border-line bg-surface px-3 text-sm text-ink tabular-nums shadow-xs placeholder:text-ink-3 hover:border-line-strong focus:border-brand focus:ring-2 focus:ring-brand/15 focus:outline-none";
+  "h-10 w-full rounded-md border border-line-strong bg-surface px-3 text-sm text-ink tabular-nums placeholder:text-ink-3 hover:border-line-strong focus:border-brand focus:ring-2 focus:ring-brand/15 focus:outline-none";
 
 export function Card({
   children,
@@ -46,7 +46,7 @@ export function Card({
   return (
     <Tag
       className={cx(
-        "rounded-xl border border-line bg-surface shadow-[0_1px_2px_rgba(15,30,35,0.04)]",
+        "rounded-lg border border-line bg-surface",
         className,
       )}
     >
@@ -59,27 +59,20 @@ export function CardHeader({
   title,
   description,
   action,
-  icon,
   className,
 }: {
   title: ReactNode;
   description?: ReactNode;
   action?: ReactNode;
+  /** Accepted for older call sites; headers no longer show an icon. */
   icon?: ReactNode;
   className?: string;
 }) {
   return (
     <div className={cx("flex items-start justify-between gap-4 px-5 pt-5", className)}>
-      <div className="flex min-w-0 items-start gap-3">
-        {icon && (
-          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-soft text-brand">
-            {icon}
-          </span>
-        )}
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
-          {description && <p className="mt-0.5 text-pretty text-sm text-ink-3">{description}</p>}
-        </div>
+      <div className="min-w-0">
+        <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+        {description && <p className="mt-0.5 text-pretty text-[13px] text-ink-3">{description}</p>}
       </div>
       {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
     </div>
@@ -102,7 +95,7 @@ export function PageHeader({
   return (
     <header className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-end lg:justify-between">
       <div className="min-w-0">
-        {eyebrow && <div className="mb-1.5 text-sm font-medium text-brand">{eyebrow}</div>}
+        {eyebrow && <div className="mb-2 font-mono text-xs tracking-wide text-ink-3 uppercase">{eyebrow}</div>}
         <h1 className="text-balance text-2xl font-semibold tracking-tight text-ink sm:text-[28px]">
           {title}
         </h1>
@@ -139,7 +132,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-0.5 text-xs font-medium",
         toneClass[tone],
         className,
       )}
@@ -154,7 +147,6 @@ export function StatCard({
   value,
   unit,
   sub,
-  icon,
   change,
   emphasis = false,
 }: {
@@ -162,6 +154,7 @@ export function StatCard({
   value: string;
   unit?: string;
   sub?: ReactNode;
+  /** Accepted for older call sites; stat cards no longer show an icon. */
   icon?: ReactNode;
   change?: { value: number; label: string; goodWhen: "up" | "down" } | null;
   emphasis?: boolean;
@@ -170,47 +163,15 @@ export function StatCard({
   const isGood = change ? (change.goodWhen === "up" ? isUp : !isUp) : false;
 
   return (
-    <Card
-      as="div"
-      className={cx(
-        "relative overflow-hidden p-5",
-        emphasis && "border-transparent bg-linear-to-br from-[#0d7480] to-[#0a4f59] text-white",
-      )}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <p className={cx("text-sm font-medium", emphasis ? "text-white/80" : "text-ink-2")}>{label}</p>
-        {icon && (
-          <span
-            className={cx(
-              "flex size-8 items-center justify-center rounded-lg",
-              emphasis ? "bg-white/15 text-white" : "bg-surface-3 text-ink-2",
-            )}
-          >
-            {icon}
-          </span>
-        )}
-      </div>
-      <p
-        className={cx(
-          "mt-3 text-[26px] leading-none font-semibold tracking-tight tabular-nums",
-          emphasis ? "text-white" : "text-ink",
-        )}
-      >
-        {value}
-        {unit && (
-          <span className={cx("ml-1 text-base font-medium", emphasis ? "text-white/70" : "text-ink-3")}>
-            {unit}
-          </span>
-        )}
+    <Card as="div" className={cx("relative overflow-hidden p-5", emphasis && "border-t-[3px] border-t-brand")}>
+      <p className="text-[13px] font-medium text-ink-2">{label}</p>
+      <p className="mt-2.5 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-ink">
+        <CountUp value={value} />
+        {unit && <span className="ml-1 text-sm font-medium text-ink-3">{unit}</span>}
       </p>
-      <div className={cx("mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs", emphasis ? "text-white/75" : "text-ink-3")}>
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
         {change && Number.isFinite(change.value) && (
-          <span
-            className={cx(
-              "inline-flex items-center gap-0.5 font-medium",
-              emphasis ? "text-white" : isGood ? "text-positive" : "text-danger",
-            )}
-          >
+          <span className={cx("inline-flex items-center gap-0.5 font-medium", isGood ? "text-positive" : "text-danger")}>
             {isUp ? <TrendUpIcon className="size-3.5" /> : <TrendDownIcon className="size-3.5" />}
             {`${isUp ? "+" : ""}${(change.value * 100).toFixed(1)}%`}
           </span>
@@ -278,41 +239,13 @@ export function Field({
 export function Tabs({
   items,
   active,
+  label = "Sections",
 }: {
   items: { key: string; label: string; href: string; count?: number }[];
   active: string;
+  label?: string;
 }) {
-  return (
-    <nav className="-mx-4 mb-6 overflow-x-auto px-4 shadow-[inset_0_-1px_0_var(--line)] sm:mx-0 sm:px-0" aria-label="Sections">
-      <ul className="flex min-w-max gap-6">
-        {items.map((item) => {
-          const isActive = item.key === active;
-          return (
-            <li key={item.key}>
-              <Link
-                href={item.href}
-                scroll={false}
-                aria-current={isActive ? "page" : undefined}
-                className={cx(
-                  "inline-flex h-11 items-center gap-2 border-b-2 text-sm font-medium",
-                  isActive
-                    ? "border-brand text-ink"
-                    : "border-transparent text-ink-3 hover:border-line-strong hover:text-ink-2",
-                )}
-              >
-                {item.label}
-                {item.count !== undefined && (
-                  <span className="rounded-full bg-surface-3 px-1.5 text-xs text-ink-3 tabular-nums">
-                    {item.count}
-                  </span>
-                )}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
-  );
+  return <AnimatedTabs items={items} active={active} label={label} />;
 }
 
 export function Legend({ items }: { items: { label: string; color: string }[] }) {

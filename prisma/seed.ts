@@ -1,14 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../app/generated/prisma/client";
 import { parsePondReport } from "../lib/import/pondReport";
 import { buildImportPlan } from "../lib/import/plan";
 import { commitImportPlan } from "../lib/import/commit";
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL ?? "file:./prisma/dev.db",
-});
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
 // Feed catalog from the Pond 1 sheet's cost tables (price per kg, RM).
@@ -36,11 +34,12 @@ async function main() {
     });
   }
 
+  const farm = await prisma.farm.upsert({ where: { name: "Main farm" }, update: {}, create: { name: "Main farm" } });
   for (let number = 1; number <= POND_COUNT; number++) {
     await prisma.pond.upsert({
       where: { name: `Pond ${number}` },
       update: {},
-      create: { name: `Pond ${number}` },
+      create: { name: `Pond ${number}`, farmId: farm.id },
     });
   }
 

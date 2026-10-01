@@ -1,12 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChartTooltip, formatTick, niceScale, useChartWidth, type TooltipContent } from "./useChartWidth";
 
 export type LinePoint = {
   key: string;
   label: string;
-  value: number;
+  /** Null leaves a gap in the line (e.g. a day with nothing recorded). */
+  value: number | null;
+  /** Dot colour for this point; defaults to the line colour. */
+  color?: string;
   tooltip: TooltipContent;
 };
 
@@ -18,29 +21,63 @@ export default function LineChart({
   ariaLabel,
   unit,
   color = "var(--series-1)",
+  area = true,
+  minLabelSpacing,
 }: {
   points: LinePoint[];
   height?: number;
   ariaLabel: string;
   unit?: string;
   color?: string;
+  area?: boolean;
+  /** Draw every non-empty label at least this far apart, instead of every Nth point. */
+  minLabelSpacing?: number;
 }) {
   const { ref, width } = useChartWidth();
   const [active, setActive] = useState<number | null>(null);
 
-  const { max, ticks } = niceScale(Math.max(...points.map((point) => point.value), 0));
+  const { max, ticks } = niceScale(Math.max(...points.map((point) => point.value ?? 0), 0));
   const plotWidth = width - PAD.left - PAD.right;
   const plotHeight = height - PAD.top - PAD.bottom;
   const step = points.length > 1 ? plotWidth / (points.length - 1) : 0;
   const x = (index: number) => PAD.left + (points.length > 1 ? index * step : plotWidth / 2);
   const y = (value: number) => PAD.top + plotHeight - (value / max) * plotHeight;
   const labelEvery = Math.max(1, Math.ceil(44 / Math.max(step, 1)));
+  const shownLabels = new Set<number>();
+  for (let index = 0; index < points.length; index++) {
+    if (!points[index].label) continue;
+    if (minLabelSpacing === undefined) {
+      if (index % labelEvery === 0) shownLabels.add(index);
+    } else if (![...shownLabels].some((other) => x(index) - x(other) < minLabelSpacing)) {
+      shownLabels.add(index);
+    }
+  }
+  const dotRadius = Math.min(Math.max(step * 0.4, 1.75), 3.25);
 
-  const line = points.map((point, index) => `${index === 0 ? "M" : "L"}${x(index)},${y(point.value)}`).join(" ");
-  const area = points.length
-    ? `${line} L${x(points.length - 1)},${PAD.top + plotHeight} L${x(0)},${PAD.top + plotHeight} Z`
+  const line = points
+    .map((point, index) => {
+      if (point.value === null) return "";
+      const penDown = index > 0 && points[index - 1].value !== null;
+      return `${penDown ? "L" : "M"}${x(index)},${y(point.value)}`;
+    })
+    .join(" ");
+  // One shaded area per unbroken run of points, so gaps stay empty.
+  const runs: number[][] = [];
+  points.forEach((point, index) => {
+    if (point.value === null) return;
+    const last = runs[runs.length - 1];
+    if (last && last[last.length - 1] === index - 1) last.push(index);
+    else runs.push([index]);
+  });
+  const areaPath = area
+    ? runs
+        .map((run) => {
+          const top = run.map((index, i) => `${i === 0 ? "M" : "L"}${x(index)},${y(points[index].value!)}`).join(" ");
+          return `${top} L${x(run[run.length - 1])},${PAD.top + plotHeight} L${x(run[0])},${PAD.top + plotHeight} Z`;
+        })
+        .join(" ")
     : "";
-  const gradientId = `area-${ariaLabel.replace(/\W+/g, "-")}`;
+  const gradientId = `area-${useId().replace(/\W+/g, "")}`;
 
   return (
     <div ref={ref} className="relative w-full" onMouseLeave={() => setActive(null)}>
@@ -77,7 +114,7 @@ export default function LineChart({
           y2={PAD.top + plotHeight}
           stroke="var(--axis)"
         />
-        <path d={area} fill={`url(#${gradientId})`} />
+        <path d={areaPath} fill={`url(#${gradientId})`} />
         <path d={line} fill="none" stroke={color} strokeWidth={2.25} strokeLinejoin="round" strokeLinecap="round" />
         {active !== null && (
           <line
@@ -91,23 +128,25 @@ export default function LineChart({
         )}
         {points.map((point, index) => (
           <g key={point.key}>
-            <circle
-              cx={x(index)}
-              cy={y(point.value)}
-              r={active === index ? 5 : 3.25}
-              fill="var(--surface)"
-              stroke={color}
-              strokeWidth={2}
-            />
-            {index % labelEvery === 0 && (
+            {point.value !== null && (
+              <circle
+                cx={x(index)}
+                cy={y(point.value)}
+                r={active === index ? Math.max(dotRadius + 1.75, 5) : dotRadius}
+                fill="var(--surface)"
+                stroke={point.color ?? color}
+                strokeWidth={dotRadius < 3 ? 1.5 : 2}
+              />
+            )}
+            {shownLabels.has(index) && (
               <text x={x(index)} y={height - 8} textAnchor="middle" className="fill-ink-3 text-[10.5px]">
                 {point.label}
               </text>
             )}
             <rect
-              x={x(index) - Math.max(step, 24) / 2}
+              x={x(index) - (step || 24) / 2}
               y={PAD.top}
-              width={Math.max(step, 24)}
+              width={(step || 24)}
               height={plotHeight}
               fill="transparent"
               onMouseEnter={() => setActive(index)}

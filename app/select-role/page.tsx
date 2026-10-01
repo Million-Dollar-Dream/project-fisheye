@@ -4,11 +4,17 @@ import { signIn } from "../actions/session";
 import { ArrowRightIcon, BrandMark, ChartIcon, ClipboardIcon, FileIcon, UserIcon } from "../components/icons";
 import { buttonClass, inputClass } from "../components/ui";
 import { NAME_COOKIE } from "@/lib/role";
+import { getI18n } from "@/lib/i18n/server";
+import LanguageSwitcher from "../components/LanguageSwitcher";
 
-export const metadata: Metadata = { title: "Sign in" };
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  return { title: t("signin.title") };
+}
 
 export default async function SelectRolePage({ searchParams }: PageProps<"/select-role">) {
   const { next } = await searchParams;
+  const { t } = await getI18n();
   const savedName = (await cookies()).get(NAME_COOKIE)?.value ?? "";
   const nextPath = typeof next === "string" ? next : "";
 
@@ -29,29 +35,28 @@ export default async function SelectRolePage({ searchParams }: PageProps<"/selec
         </div>
 
         <div className="relative max-w-xl">
-          <p className="mb-4 text-sm font-medium text-[#7fd3d9]">Pond performance records</p>
+          <p className="mb-4 text-sm font-medium text-[#9fc9cd]">{t("signin.eyebrow")}</p>
           <h1 className="text-balance text-[44px] leading-[1.1] font-semibold tracking-tight">
-            From the pond-side spreadsheet to one live view of the farm.
+            {t("signin.headline")}
           </h1>
           <p className="mt-5 max-w-lg text-pretty text-base leading-7 text-sidebar-ink/75">
-            Workers log feed and mortality from their phones. Owners see feed cost, growth and projected
-            harvest for every pond, with the history carried over from the existing sheets.
+            {t("signin.intro")}
           </p>
 
           <ul className="mt-10 grid gap-4 text-sm text-sidebar-ink/85 sm:grid-cols-3">
-            <HeroPoint icon={<FileIcon className="size-4" />} title="Digitised">
-              Existing pond sheets imported and cross-checked
+            <HeroPoint icon={<FileIcon className="size-4" />} title={t("signin.point1Title")}>
+              {t("signin.point1")}
             </HeroPoint>
-            <HeroPoint icon={<ClipboardIcon className="size-4" />} title="Daily entry">
-              Built for phones, one screen per pond
+            <HeroPoint icon={<ClipboardIcon className="size-4" />} title={t("signin.point2Title")}>
+              {t("signin.point2")}
             </HeroPoint>
-            <HeroPoint icon={<ChartIcon className="size-4" />} title="Decisions">
-              Feed cost, FCR, growth and harvest estimates
+            <HeroPoint icon={<ChartIcon className="size-4" />} title={t("signin.point3Title")}>
+              {t("signin.point3")}
             </HeroPoint>
           </ul>
         </div>
 
-        <p className="relative text-xs text-sidebar-muted">Phase 1 · Pond records and daily logging</p>
+        <p className="relative text-xs text-sidebar-muted">{t("signin.phase")}</p>
       </section>
 
       <main className="flex items-center justify-center px-4 py-10 sm:px-8">
@@ -62,14 +67,13 @@ export default async function SelectRolePage({ searchParams }: PageProps<"/selec
           </div>
 
           <h2 className="text-balance text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-            Who is using Fisheye?
+            {t("signin.who")}
           </h2>
-          <p className="mt-2 text-pretty text-sm leading-6 text-ink-2">
-            Choose a workspace. You can switch at any time.
-          </p>
+          <p className="mt-2 text-pretty text-sm leading-6 text-ink-2">{t("signin.choose")}</p>
+          <LanguageSwitcher className="mt-4" />
 
           <div className="mt-8 space-y-4">
-            <form action={signIn} className="rounded-xl border border-line bg-surface p-5 shadow-xs">
+            <form action={signIn} className="rounded-lg border border-line bg-surface p-5">
               <input type="hidden" name="role" value="owner" />
               <input type="hidden" name="next" value={nextPath} />
               <div className="flex items-start gap-4">
@@ -77,19 +81,17 @@ export default async function SelectRolePage({ searchParams }: PageProps<"/selec
                   <ChartIcon className="size-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-ink">Farm owner</h3>
-                  <p className="mt-0.5 text-sm text-ink-3">
-                    Dashboard, pond performance, feed stock and spreadsheet import.
-                  </p>
+                  <h3 className="font-semibold text-ink">{t("nav.farmOwner")}</h3>
+                  <p className="mt-0.5 text-sm text-ink-3">{t("signin.ownerDescription")}</p>
                 </div>
               </div>
               <button type="submit" className={`${buttonClass("primary", "md")} mt-4 w-full`}>
-                Open dashboard
+                {t("signin.openDashboard")}
                 <ArrowRightIcon className="size-4" />
               </button>
             </form>
 
-            <form action={signIn} className="rounded-xl border border-line bg-surface p-5 shadow-xs">
+            <form action={signIn} className="rounded-lg border border-line bg-surface p-5">
               <input type="hidden" name="role" value="worker" />
               <input type="hidden" name="next" value={nextPath} />
               <div className="flex items-start gap-4">
@@ -97,14 +99,12 @@ export default async function SelectRolePage({ searchParams }: PageProps<"/selec
                   <ClipboardIcon className="size-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <h3 className="font-semibold text-ink">Farm worker</h3>
-                  <p className="mt-0.5 text-sm text-ink-3">
-                    Record today&apos;s feed, dead fish and sample weights.
-                  </p>
+                  <h3 className="font-semibold text-ink">{t("signin.worker")}</h3>
+                  <p className="mt-0.5 text-sm text-ink-3">{t("signin.workerDescription")}</p>
                 </div>
               </div>
               <label htmlFor="worker-name" className="mt-4 mb-1.5 block text-sm font-medium text-ink-2">
-                Your name
+                {t("signin.yourName")}
               </label>
               <div className="relative">
                 <UserIcon className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-3" />
@@ -115,12 +115,12 @@ export default async function SelectRolePage({ searchParams }: PageProps<"/selec
                   required
                   maxLength={40}
                   autoComplete="given-name"
-                  placeholder="e.g. Ahmad"
+                  placeholder={t("signin.namePlaceholder")}
                   className={`${inputClass} h-11 pl-9 text-base`}
                 />
               </div>
               <button type="submit" className={`${buttonClass("secondary", "md")} mt-3 w-full`}>
-                Start daily log
+                {t("signin.startLog")}
                 <ArrowRightIcon className="size-4" />
               </button>
             </form>
@@ -134,7 +134,7 @@ export default async function SelectRolePage({ searchParams }: PageProps<"/selec
 function HeroPoint({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
     <li className="rounded-lg border border-white/10 bg-white/5 p-4">
-      <span className="mb-3 flex size-7 items-center justify-center rounded-md bg-white/10 text-[#7fd3d9]">{icon}</span>
+      <span className="mb-3 flex size-7 items-center justify-center rounded-md bg-white/10 text-[#9fc9cd]">{icon}</span>
       <p className="font-semibold text-white">{title}</p>
       <p className="mt-1 text-xs leading-5 text-sidebar-ink/70">{children}</p>
     </li>

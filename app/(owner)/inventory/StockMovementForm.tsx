@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { recordStockMovement } from "@/app/actions/owner";
 import type { FormState } from "@/app/actions/logs";
 import { CheckCircleIcon } from "@/app/components/icons";
+import { useI18n } from "@/app/components/I18nProvider";
 import { Card, CardHeader, Field, buttonClass, cx, inputClass } from "@/app/components/ui";
 
 export default function StockMovementForm({
@@ -13,16 +14,17 @@ export default function StockMovementForm({
   feedTypes: { id: number; code: string }[];
   today: string;
 }) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState<FormState, FormData>(recordStockMovement, { status: "idle" });
   const [kind, setKind] = useState<"count" | "delivery">("count");
   const errors = state.status === "error" ? state.fieldErrors ?? {} : {};
 
   return (
     <Card className="h-fit">
-      <CardHeader title="Record stock" description="Count the store, or add a delivery." />
+      <CardHeader title={t("stock.record")} description={t("stock.recordDescription")} />
       <form action={formAction} className="space-y-4 p-5">
         <input type="hidden" name="kind" value={kind} />
-        <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-3 p-1" role="radiogroup" aria-label="Movement type">
+        <div className="grid grid-cols-2 gap-1 rounded-lg bg-surface-3 p-1" role="radiogroup" aria-label={t("stock.movementType")}>
           {(["count", "delivery"] as const).map((option) => (
             <button
               key={option}
@@ -32,18 +34,18 @@ export default function StockMovementForm({
               onClick={() => setKind(option)}
               className={cx(
                 "h-8 rounded-md text-sm font-medium",
-                kind === option ? "bg-surface text-ink shadow-xs" : "text-ink-3 hover:text-ink",
+                kind === option ? "bg-surface text-ink" : "text-ink-3 hover:text-ink",
               )}
             >
-              {option === "count" ? "Stocktake" : "Delivery"}
+              {option === "count" ? t("stock.stocktake") : t("stock.delivery")}
             </button>
           ))}
         </div>
 
-        <Field label="Feed type" htmlFor="feedTypeId" hint={errors.feedTypeId}>
+        <Field label={t("pond.col.feedType")} htmlFor="feedTypeId" hint={errors.feedTypeId}>
           <select id="feedTypeId" name="feedTypeId" className={inputClass} required defaultValue="">
             <option value="" disabled>
-              Choose
+              {t("form.choose")}
             </option>
             {feedTypes.map((feedType) => (
               <option key={feedType.id} value={feedType.id}>
@@ -53,7 +55,7 @@ export default function StockMovementForm({
           </select>
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label={kind === "count" ? "Bags in store" : "Bags received"} htmlFor="bags" hint={errors.bags}>
+          <Field label={kind === "count" ? t("stock.bagsInStore") : t("stock.bagsReceived")} htmlFor="bags" hint={errors.bags}>
             <input
               id="bags"
               name="bags"
@@ -65,21 +67,21 @@ export default function StockMovementForm({
               className={cx(inputClass, errors.bags && "border-danger")}
             />
           </Field>
-          <Field label="Date" htmlFor="date" hint={errors.date}>
+          <Field label={t("harvests.col.date")} htmlFor="date" hint={errors.date}>
             <input id="date" name="date" type="date" max={today} defaultValue={today} required className={inputClass} />
           </Field>
         </div>
-        <Field label="Note (optional)" htmlFor="stock-note">
+        <Field label={t("stock.noteOptional")} htmlFor="stock-note">
           <input
             id="stock-note"
             name="note"
             maxLength={200}
-            placeholder={kind === "delivery" ? "Supplier, invoice no." : "Counted by"}
+            placeholder={kind === "delivery" ? t("stock.deliveryPlaceholder") : t("stock.countPlaceholder")}
             className={inputClass}
           />
         </Field>
         <button type="submit" disabled={pending} className={`${buttonClass("primary")} w-full`}>
-          {pending ? "Saving…" : kind === "count" ? "Save stocktake" : "Save delivery"}
+          {pending ? t("form.saving") : kind === "count" ? t("stock.saveCount") : t("stock.saveDelivery")}
         </button>
         {state.status === "success" && (
           <p role="status" className="flex items-center gap-1.5 text-sm text-positive">
@@ -88,8 +90,7 @@ export default function StockMovementForm({
           </p>
         )}
         <p className="text-xs leading-5 text-ink-3">
-          A stocktake resets the balance to what&apos;s physically in the store at the end of that day. Bags logged by
-          workers afterwards are subtracted automatically.
+          {t("stock.help")}
         </p>
       </form>
     </Card>

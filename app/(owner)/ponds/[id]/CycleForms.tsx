@@ -1,19 +1,31 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { closeCycle, startCycle } from "@/app/actions/owner";
+import { closeCycle, recordHarvest, startCycle } from "@/app/actions/owner";
 import type { FormState } from "@/app/actions/logs";
-import { CheckCircleIcon, CheckIcon, XIcon } from "@/app/components/icons";
+import { useI18n } from "@/app/components/I18nProvider";
+import { BoxIcon, CheckCircleIcon, PlusIcon, TrashIcon, XIcon } from "@/app/components/icons";
 import { Card, CardHeader, Field, buttonClass, cx, inputClass } from "@/app/components/ui";
 import { fcrRating } from "@/lib/cycle";
+import { daysBetween } from "@/lib/dates";
+import { formatNumber } from "@/lib/format";
+import { estimateBoxes } from "@/lib/harvest";
+import type { MessageKey } from "@/lib/i18n/messages/en";
 
-const LOSS_CAUSES = ["Disease", "Low oxygen / water quality", "Flood or overflow", "Predators or theft", "Other"];
+const LOSS_CAUSES: { value: string; key: MessageKey }[] = [
+  { value: "Disease", key: "loss.cause.disease" },
+  { value: "Low oxygen / water quality", key: "loss.cause.oxygen" },
+  { value: "Flood or overflow", key: "loss.cause.flood" },
+  { value: "Predators or theft", key: "loss.cause.predators" },
+  { value: "Other", key: "loss.cause.other" },
+];
 
 function FormFooter({ state, pending, label, danger }: { state: FormState; pending: boolean; label: string; danger?: boolean }) {
+  const { t } = useI18n();
   return (
     <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5 sm:col-span-2">
       <button type="submit" disabled={pending} className={buttonClass(danger ? "danger" : "primary")}>
-        {pending ? "Saving…" : label}
+        {pending ? t("form.saving") : label}
       </button>
       {state.status === "success" && (
         <p role="status" className="flex items-center gap-1.5 text-sm text-positive">
@@ -30,184 +42,342 @@ function FormFooter({ state, pending, label, danger }: { state: FormState; pendi
   );
 }
 
-export function CloseCycleForm({
+type GradeRow = { key: number; gradeId: string; kg: string; fish: string };
+
+export function HarvestForm({
   pondId,
   today,
   stockedAt,
-  estimatedKg,
-  fishLeft,
-  allDead,
+  grades,
+  boxKg,
+  standingKg,
+  harvestedKg,
   feedKg,
   targetFcr,
 }: {
   pondId: number;
   today: string;
   stockedAt: string;
-  estimatedKg: number;
-  // Stocked minus recorded deaths, when the stocked count is known.
-  fishLeft: number | null;
-  allDead: boolean;
-  // Feed used this cycle, for the final FCR as the harvest weight is typed.
+  grades: { id: number; label: string }[];
+  boxKg: number;
+  // Estimated fish left in the pond before this harvest.
+  standingKg: number;
+  // Already harvested earlier this cycle.
+  harvestedKg: number;
   feedKg: number;
   targetFcr: number;
 }) {
-  const [state, formAction, pending] = useActionState<FormState, FormData>(closeCycle, { status: "idle" });
-  const [outcome, setOutcome] = useState<"harvested" | "lost">(allDead ? "lost" : "harvested");
+  const { t } = useI18n();
+  const blankRows = (): GradeRow[] => [{ key: 0, gradeId: "", kg: "", fish: "" }];
+  const [rows, setRows] = useState<GradeRow[]>(blankRows);
+  const [boxes, setBoxes] = useState("");
+  const [date, setDate] = useState(today);
+  const [isFinal, setIsFinal] = useState(false);
+  const [state, formAction, pending] = useActionState<FormState, FormData>(async (previous, formData) => {
+    const result = await recordHarvest(previous, formData);
+    if (result.status === "success") {
+      setRows(blankRows());
+      setBoxes("");
+      setIsFinal(false);
+    }
+    return result;
+  }, { status: "idle" });
   const errors = state.status === "error" ? state.fieldErrors ?? {} : {};
-  const lost = outcome === "lost";
-  const [harvestKg, setHarvestKg] = useState("");
-  const finalFcr = Number(harvestKg) > 0 && feedKg > 0 ? feedKg / Number(harvestKg) : null;
+
+  const weighedKg = rows.reduce((sum, row) => sum + (Number(row.kg) > 0 ? Number(row.kg) : 0), 0);
+  const boxCount = Number(boxes) > 0 ? Number(boxes) : 0;
+  const totalKg = weighedKg > 0 ? weighedKg : boxCount * boxKg;
+  const fromBoxes = weighedKg === 0 && boxCount > 0;
+  const leftAfter = Math.max(standingKg - totalKg, 0);
+  const finalFcr = isFinal && feedKg > 0 && harvestedKg + totalKg > 0 ? feedKg / (harvestedKg + totalKg) : null;
+  const day = date >= stockedAt ? daysBetween(stockedAt, date) : null;
+  const usedGrades = new Set(rows.map((row) => row.gradeId));
+
+  const update = (key: number, patch: Partial<GradeRow>) => setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch } : row)));
 
   return (
     <Card>
-      <CardHeader
-        title="Close this cycle"
-        description="Record the harvest, or the loss if the whole pond died. The pond is then empty until you restock it."
-      />
+      <CardHeader title={t("harvestForm.title")} description={t("harvestForm.description")} />
       <form action={formAction} className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2">
         <input type="hidden" name="pondId" value={pondId} />
-        <fieldset className="sm:col-span-2">
-          <legend className="mb-1.5 text-sm font-medium text-ink-2">What happened?</legend>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {(
-              [
-                { value: "harvested", title: "Harvested", detail: "Fish were sold or moved out.", icon: CheckIcon },
-                { value: "lost", title: "Whole pond lost", detail: "The stock died, e.g. disease or low oxygen.", icon: XIcon },
-              ] as const
-            ).map((option) => (
-              <label
-                key={option.value}
-                className={cx(
-                  "flex cursor-pointer items-start gap-3 rounded-lg border p-3",
-                  outcome === option.value
-                    ? option.value === "lost"
-                      ? "border-danger bg-danger-soft"
-                      : "border-brand bg-brand-soft"
-                    : "border-line hover:border-line-strong",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="outcome"
-                  value={option.value}
-                  checked={outcome === option.value}
-                  onChange={() => setOutcome(option.value)}
-                  className="sr-only"
-                />
-                <span
-                  className={cx(
-                    "flex size-7 shrink-0 items-center justify-center rounded-full",
-                    option.value === "lost" ? "bg-danger text-white" : "bg-positive text-white",
-                  )}
-                >
-                  <option.icon className="size-4" strokeWidth={2.4} />
-                </span>
-                <span>
-                  <span className="block text-sm font-semibold text-ink">{option.title}</span>
-                  <span className="block text-xs text-ink-3">{option.detail}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          {allDead && (
-            <p className="mt-2 text-xs text-danger">Recorded deaths already equal the number stocked.</p>
-          )}
-        </fieldset>
 
-        <Field label={lost ? "Date of loss" : "Harvest date"} htmlFor="endedAt" hint={errors.endedAt}>
+        <Field
+          label={t("harvestForm.date")}
+          htmlFor="harvestDate"
+          hint={errors.date ?? (day !== null ? t("harvestForm.dayOfCulture", { day, month: formatNumber(day / 30.4, 1) }) : undefined)}
+        >
           <input
-            id="endedAt"
-            name="endedAt"
+            id="harvestDate"
+            name="date"
             type="date"
-            defaultValue={today}
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
             min={stockedAt}
             max={today}
             required
-            className={cx(inputClass, errors.endedAt && "border-danger")}
+            className={cx(inputClass, errors.date && "border-danger")}
           />
         </Field>
 
-        {lost ? (
-          <Field label="Cause" htmlFor="cause" hint={errors.cause}>
-            <select id="cause" name="cause" defaultValue="" required className={cx(inputClass, errors.cause && "border-danger")}>
-              <option value="" disabled>
-                Choose…
-              </option>
-              {LOSS_CAUSES.map((cause) => (
-                <option key={cause}>{cause}</option>
-              ))}
-            </select>
-          </Field>
-        ) : (
-          <Field
-            label="Harvested weight (kg)"
-            htmlFor="harvestKg"
-            hint={
-              errors.harvestKg ??
-              (finalFcr !== null ? (
-                <>
-                  Cycle FCR would be{" "}
-                  <span
-                    className={cx(
-                      "font-semibold tabular-nums",
-                      { good: "text-positive", watch: "text-warning", high: "text-danger" }[fcrRating(finalFcr, targetFcr)],
-                    )}
-                  >
-                    {finalFcr.toFixed(2)}
-                  </span>{" "}
-                  ({Math.round(feedKg).toLocaleString("en-MY")} kg feed, target {targetFcr}).
-                </>
-              ) : (
-                `Estimated standing stock is about ${Math.round(estimatedKg).toLocaleString("en-MY")} kg.`
-              ))
-            }
-          >
-            <input
-              id="harvestKg"
-              name="harvestKg"
-              type="number"
-              inputMode="decimal"
-              step="0.1"
-              min={0}
-              required
-              value={harvestKg}
-              onChange={(event) => setHarvestKg(event.target.value)}
-              className={cx(inputClass, errors.harvestKg && "border-danger")}
-            />
-          </Field>
-        )}
-
         <Field
-          label={lost ? "Fish lost in the final event" : "Fish harvested"}
-          htmlFor="fishCount"
-          hint={
-            errors.fishCount ??
-            (lost
-              ? fishLeft !== null
-                ? `About ${fishLeft.toLocaleString("en-MY")} were still alive before this, from stocking less recorded deaths.`
-                : "Optional."
-              : "Optional. Used for survival rate.")
-          }
+          label={t("harvestForm.boxes")}
+          htmlFor="boxes"
+          hint={errors.boxes ?? t("harvestForm.boxesHint", { kg: boxKg, n: estimateBoxes(standingKg, boxKg) })}
         >
           <input
-            key={outcome}
+            id="boxes"
+            name="boxes"
+            type="number"
+            inputMode="decimal"
+            step="0.5"
+            min={0}
+            value={boxes}
+            onChange={(event) => setBoxes(event.target.value)}
+            className={cx(inputClass, errors.boxes && "border-danger")}
+          />
+        </Field>
+
+        <fieldset className="sm:col-span-2">
+          <legend className="mb-1.5 text-sm font-medium text-ink-2">{t("harvestForm.bySize")}</legend>
+          <p className="mb-2 text-xs text-ink-3">{t("harvestForm.bySizeHint")}</p>
+          <div className="space-y-2">
+            <div className="hidden grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_36px] gap-2 text-xs text-ink-3 sm:grid">
+              <span>{t("harvestForm.grade")}</span>
+              <span>{t("harvestForm.kg")}</span>
+              <span>{t("harvestForm.fishOptional")}</span>
+              <span />
+            </div>
+            {rows.map((row, index) => (
+              <div key={row.key}>
+                <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)_36px] gap-2">
+                  <select
+                    name="gradeId"
+                    value={row.gradeId}
+                    onChange={(event) => update(row.key, { gradeId: event.target.value })}
+                    aria-label={t("harvestForm.grade")}
+                    className={cx(inputClass, errors[`line${index}`] && "border-danger")}
+                  >
+                    <option value="">{t("form.choose")}</option>
+                    {grades.map((grade) => (
+                      <option key={grade.id} value={grade.id} disabled={usedGrades.has(String(grade.id)) && row.gradeId !== String(grade.id)}>
+                        {grade.label}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    name="lineKg"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.1"
+                    min={0}
+                    value={row.kg}
+                    onChange={(event) => update(row.key, { kg: event.target.value })}
+                    placeholder="kg"
+                    aria-label={t("harvestForm.kg")}
+                    className={inputClass}
+                  />
+                  <input
+                    name="lineFish"
+                    type="number"
+                    inputMode="numeric"
+                    step={1}
+                    min={0}
+                    value={row.fish}
+                    onChange={(event) => update(row.key, { fish: event.target.value })}
+                    aria-label={t("harvestForm.fishOptional")}
+                    className={inputClass}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRows((current) => (current.length > 1 ? current.filter((entry) => entry.key !== row.key) : blankRows()))}
+                    aria-label={t("harvestForm.removeRow")}
+                    className="flex size-10 items-center justify-center rounded-lg text-ink-3 hover:bg-danger-soft hover:text-danger"
+                  >
+                    <TrashIcon className="size-4" />
+                  </button>
+                </div>
+                {errors[`line${index}`] && <p className="mt-1 text-xs text-danger">{errors[`line${index}`]}</p>}
+              </div>
+            ))}
+          </div>
+          {rows.length < grades.length && (
+            <button
+              type="button"
+              onClick={() => setRows((current) => [...current, { key: Math.max(...current.map((row) => row.key)) + 1, gradeId: "", kg: "", fish: "" }])}
+              className={cx(buttonClass("ghost", "sm"), "mt-2")}
+            >
+              <PlusIcon className="size-3.5" />
+              {t("harvestForm.addGrade")}
+            </button>
+          )}
+          {errors.lines && <p className="mt-1 text-xs text-danger">{errors.lines}</p>}
+        </fieldset>
+
+        <Field label={t("harvestForm.fishTotal")} htmlFor="fishCount" hint={errors.fishCount ?? t("harvestForm.fishTotalHint")}>
+          <input
             id="fishCount"
             name="fishCount"
             type="number"
             inputMode="numeric"
             min={0}
             step={1}
-            defaultValue={lost && fishLeft !== null ? fishLeft : ""}
             className={cx(inputClass, errors.fishCount && "border-danger")}
           />
         </Field>
 
-        <Field label="Note" htmlFor="note" hint="Optional, e.g. buyer, price, what was seen before the loss.">
-          <input id="note" name="note" maxLength={300} className={inputClass} />
+        <Field label={t("pond.note")} htmlFor="harvestNote" hint={t("harvestForm.noteHint")}>
+          <input id="harvestNote" name="note" maxLength={300} className={inputClass} />
         </Field>
 
-        <FormFooter state={state} pending={pending} label={lost ? "Close cycle as a loss" : "Record harvest"} danger={lost} />
+        <div className="grid grid-cols-2 gap-3 rounded-lg bg-surface-2 p-4 text-sm sm:col-span-2 sm:grid-cols-4">
+          <Summary
+            label={t("harvestForm.thisHarvest")}
+            value={totalKg > 0 ? `${formatNumber(totalKg, 0)} kg` : "—"}
+            sub={fromBoxes ? t("harvestForm.fromBoxes", { n: boxCount, kg: boxKg }) : totalKg > 0 ? t("unit.boxes", { n: estimateBoxes(totalKg, boxKg) }) : undefined}
+          />
+          <Summary label={t("harvestForm.standingBefore")} value={`${formatNumber(standingKg, 0)} kg`} />
+          <Summary label={t("harvestForm.leftAfter")} value={`${formatNumber(leftAfter, 0)} kg`} sub={t("harvestForm.deducted")} />
+          <Summary
+            label={t("harvestForm.cycleTotal")}
+            value={`${formatNumber(harvestedKg + totalKg, 0)} kg`}
+            sub={harvestedKg > 0 ? t("harvestForm.earlier", { kg: formatNumber(harvestedKg, 0) }) : undefined}
+          />
+        </div>
+
+        <label
+          className={cx(
+            "flex cursor-pointer items-start gap-3 rounded-lg border p-3 sm:col-span-2",
+            isFinal ? "border-brand bg-brand-soft" : "border-line hover:border-line-strong",
+          )}
+        >
+          <input
+            type="checkbox"
+            name="isFinal"
+            checked={isFinal}
+            onChange={(event) => setIsFinal(event.target.checked)}
+            className="mt-0.5 size-4 accent-[var(--brand)]"
+          />
+          <span>
+            <span className="block text-sm font-semibold text-ink">{t("harvestForm.final")}</span>
+            <span className="block text-xs text-ink-3">{t("harvestForm.finalHint")}</span>
+            {finalFcr !== null && (
+              <span className="mt-1 block text-sm text-ink-2">
+                {t("harvestForm.finalFcr")}{" "}
+                <span
+                  className={cx(
+                    "font-semibold tabular-nums",
+                    { good: "text-positive", watch: "text-warning", high: "text-danger" }[fcrRating(finalFcr, targetFcr)],
+                  )}
+                >
+                  {finalFcr.toFixed(2)}
+                </span>{" "}
+                {t("harvestForm.finalFcrDetail", { feed: formatNumber(feedKg, 0), kg: formatNumber(harvestedKg + totalKg, 0), target: targetFcr })}
+              </span>
+            )}
+          </span>
+        </label>
+
+        <FormFooter state={state} pending={pending} label={isFinal ? t("harvestForm.submitFinal") : t("harvestForm.submit")} />
       </form>
+    </Card>
+  );
+}
+
+function Summary({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div>
+      <p className="text-xs text-ink-3">{label}</p>
+      <p className="font-semibold tabular-nums text-ink">{value}</p>
+      {sub && (
+        <p className="flex items-center gap-1 text-xs text-ink-3">
+          <BoxIcon className="size-3" />
+          {sub}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// For when the whole pond died; harvests close the cycle through HarvestForm.
+export function LossForm({
+  pondId,
+  today,
+  stockedAt,
+  fishLeft,
+  allDead,
+}: {
+  pondId: number;
+  today: string;
+  stockedAt: string;
+  // Stocked minus recorded deaths and harvests, when the stocked count is known.
+  fishLeft: number | null;
+  allDead: boolean;
+}) {
+  const { t } = useI18n();
+  const [state, formAction, pending] = useActionState<FormState, FormData>(closeCycle, { status: "idle" });
+  const errors = state.status === "error" ? state.fieldErrors ?? {} : {};
+
+  return (
+    <Card className={cx(allDead && "border-danger/40")}>
+      <details open={allDead} className="group">
+        <summary className="flex cursor-pointer list-none items-start gap-3 px-5 py-4">
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-danger text-white">
+            <XIcon className="size-4" strokeWidth={2.4} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-ink">{t("loss.title")}</span>
+            <span className="block text-sm text-ink-3">{t("loss.description")}</span>
+            {allDead && <span className="mt-1 block text-xs text-danger">{t("loss.allDead")}</span>}
+          </span>
+        </summary>
+        <form action={formAction} className="grid grid-cols-1 gap-5 border-t border-line p-5 sm:grid-cols-2">
+          <input type="hidden" name="pondId" value={pondId} />
+          <Field label={t("loss.date")} htmlFor="endedAt" hint={errors.endedAt}>
+            <input
+              id="endedAt"
+              name="endedAt"
+              type="date"
+              defaultValue={today}
+              min={stockedAt}
+              max={today}
+              required
+              className={cx(inputClass, errors.endedAt && "border-danger")}
+            />
+          </Field>
+          <Field label={t("loss.cause")} htmlFor="cause" hint={errors.cause}>
+            <select id="cause" name="cause" defaultValue="" required className={cx(inputClass, errors.cause && "border-danger")}>
+              <option value="" disabled>
+                {t("form.choose")}
+              </option>
+              {LOSS_CAUSES.map((cause) => (
+                <option key={cause.value} value={cause.value}>
+                  {t(cause.key)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field
+            label={t("loss.fish")}
+            htmlFor="lossFishCount"
+            hint={errors.fishCount ?? (fishLeft !== null ? t("loss.fishHint", { n: formatNumber(fishLeft, 0) }) : t("form.optional"))}
+          >
+            <input
+              id="lossFishCount"
+              name="fishCount"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              defaultValue={fishLeft ?? ""}
+              className={cx(inputClass, errors.fishCount && "border-danger")}
+            />
+          </Field>
+          <Field label={t("pond.note")} htmlFor="lossNote" hint={t("loss.noteHint")}>
+            <input id="lossNote" name="note" maxLength={300} className={inputClass} />
+          </Field>
+          <FormFooter state={state} pending={pending} label={t("loss.submit")} danger />
+        </form>
+      </details>
     </Card>
   );
 }
@@ -223,18 +393,17 @@ export function StartCycleForm({
   minDate: string | null;
   suggestion: string | null;
 }) {
+  const { t } = useI18n();
   const [state, formAction, pending] = useActionState<FormState, FormData>(startCycle, { status: "idle" });
   const errors = state.status === "error" ? state.fieldErrors ?? {} : {};
 
   return (
     <Card>
-      <CardHeader title="Start a new cycle" description="Enter the day fingerlings went in. The planned harvest date follows from the cycle length." />
-      {suggestion && (
-        <p className="mx-5 mt-4 rounded-lg bg-info-soft px-3 py-2.5 text-sm text-info">{suggestion}</p>
-      )}
+      <CardHeader title={t("start.title")} description={t("start.description")} />
+      {suggestion && <p className="mx-5 mt-4 rounded-lg bg-info-soft px-3 py-2.5 text-sm text-info">{suggestion}</p>}
       <form action={formAction} className="grid grid-cols-1 gap-5 p-5 sm:grid-cols-2">
         <input type="hidden" name="pondId" value={pondId} />
-        <Field label="Stocking date" htmlFor="startStockedAt" hint={errors.stockedAt}>
+        <Field label={t("start.date")} htmlFor="startStockedAt" hint={errors.stockedAt}>
           <input
             id="startStockedAt"
             name="stockedAt"
@@ -246,7 +415,7 @@ export function StartCycleForm({
             className={cx(inputClass, errors.stockedAt && "border-danger")}
           />
         </Field>
-        <Field label="Fish stocked" htmlFor="startStockedCount" hint={errors.stockedCount ?? "Number of fingerlings."}>
+        <Field label={t("start.fish")} htmlFor="startStockedCount" hint={errors.stockedCount ?? t("start.fishHint")}>
           <input
             id="startStockedCount"
             name="stockedCount"
@@ -254,11 +423,11 @@ export function StartCycleForm({
             inputMode="numeric"
             min={1}
             step={1}
-            placeholder="e.g. 5000"
+            placeholder="5000"
             className={cx(inputClass, errors.stockedCount && "border-danger")}
           />
         </Field>
-        <FormFooter state={state} pending={pending} label="Start cycle" />
+        <FormFooter state={state} pending={pending} label={t("start.submit")} />
       </form>
     </Card>
   );
