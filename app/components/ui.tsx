@@ -149,6 +149,7 @@ export function StatCard({
   sub,
   change,
   emphasis = false,
+  secondary,
 }: {
   label: string;
   value: string;
@@ -158,26 +159,41 @@ export function StatCard({
   icon?: ReactNode;
   change?: { value: number; label: string; goodWhen: "up" | "down" } | null;
   emphasis?: boolean;
+  /** A second figure shown in the same card, beside the first. */
+  secondary?: { label: string; value: string; sub?: ReactNode };
 }) {
   const isUp = change ? change.value >= 0 : false;
   const isGood = change ? (change.goodWhen === "up" ? isUp : !isUp) : false;
 
   return (
     <Card as="div" className={cx("relative overflow-hidden p-5", emphasis && "border-t-[3px] border-t-brand")}>
-      <p className="text-[13px] font-medium text-ink-2">{label}</p>
-      <p className="mt-2.5 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-ink">
-        <CountUp value={value} />
-        {unit && <span className="ml-1 text-sm font-medium text-ink-3">{unit}</span>}
-      </p>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
-        {change && Number.isFinite(change.value) && (
-          <span className={cx("inline-flex items-center gap-0.5 font-medium", isGood ? "text-positive" : "text-danger")}>
-            {isUp ? <TrendUpIcon className="size-3.5" /> : <TrendDownIcon className="size-3.5" />}
-            {`${isUp ? "+" : ""}${(change.value * 100).toFixed(1)}%`}
-          </span>
+      <div className={cx(secondary && "grid grid-cols-2 gap-4")}>
+        <div className="min-w-0">
+          <p className="text-[13px] font-medium text-ink-2">{label}</p>
+          <p className="mt-2.5 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-ink">
+            <CountUp value={value} />
+            {unit && <span className="ml-1 text-sm font-medium text-ink-3">{unit}</span>}
+          </p>
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+            {change && Number.isFinite(change.value) && (
+              <span className={cx("inline-flex items-center gap-0.5 font-medium", isGood ? "text-positive" : "text-danger")}>
+                {isUp ? <TrendUpIcon className="size-3.5" /> : <TrendDownIcon className="size-3.5" />}
+                {`${isUp ? "+" : ""}${(change.value * 100).toFixed(1)}%`}
+              </span>
+            )}
+            {change && <span>{change.label}</span>}
+            {sub && <span>{sub}</span>}
+          </div>
+        </div>
+        {secondary && (
+          <div className="min-w-0 border-l border-line pl-4">
+            <p className="text-[13px] font-medium text-ink-2">{secondary.label}</p>
+            <p className="mt-2.5 text-[28px] leading-none font-semibold tracking-tight tabular-nums text-ink">
+              <CountUp value={secondary.value} />
+            </p>
+            {secondary.sub && <p className="mt-2.5 text-xs text-ink-3">{secondary.sub}</p>}
+          </div>
         )}
-        {change && <span>{change.label}</span>}
-        {sub && <span>{sub}</span>}
       </div>
     </Card>
   );
