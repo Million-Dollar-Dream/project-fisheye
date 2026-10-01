@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { daysBetween, daysInMonth, todayKey } from "@/lib/dates";
+import { dateToDayKey, daysBetween, daysInMonth, todayKey } from "@/lib/dates";
 import { formatAbw, formatKg, formatNumber, formatRm } from "@/lib/format";
 import { buildInsights, type Insight } from "@/lib/insights";
 import { STAGES, harvestForecast, type CycleStatus, type StageKey } from "@/lib/cycle";
@@ -75,6 +75,16 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
     (sum, batch) => sum + batch.findings.filter((finding) => finding.severity === "warning").length,
     0,
   );
+  // Feed cost on the latest day anyone logged, across every pond.
+  const latestDay = withData.map(({ metrics }) => metrics.lastLogDate!).sort().at(-1) ?? null;
+  const daily = { dayKey: latestDay, costRm: 0, ponds: 0 };
+  for (const { logs } of withData) {
+    const cost = logs.filter((log) => dateToDayKey(log.date) === latestDay).reduce((sum, log) => sum + log.feedCostRm, 0);
+    if (cost > 0) {
+      daily.costRm += cost;
+      daily.ponds += 1;
+    }
+  }
   const insights = buildInsights(ponds, stock.levels, findingsCount, today, i18n);
   const forecast = harvestForecast(ponds, today);
   const readyPonds = ponds.filter((entry) => entry.harvestability === "ready");
@@ -97,10 +107,11 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
     (sum, { metrics }) => ({
       harvestKg: sum.harvestKg + metrics.estimatedHarvestKg,
       feedKg: sum.feedKg + metrics.totals.feedKg,
+      costRm: sum.costRm + metrics.totals.feedCostRm,
       dead: sum.dead + metrics.totals.deadCount,
       harvestedKg: sum.harvestedKg + metrics.harvested.kg,
     }),
-    { harvestKg: 0, feedKg: 0, dead: 0, harvestedKg: 0 },
+    { harvestKg: 0, feedKg: 0, costRm: 0, dead: 0, harvestedKg: 0 },
   );
 
   // Farm-wide monthly series, stacked by pond, or by farm once there are
@@ -202,7 +213,7 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
         }
       />
 
-      <section aria-label={t("overview.keyFigures")} className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label={t("overview.keyFigures")} className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
           emphasis
           label={t("overview.standingStock")}
@@ -212,11 +223,17 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
           sub={t("overview.standingStockSub", { boxes: estimateBoxes(totals.harvestKg, boxKg), n: withData.length })}
         />
         <StatCard
-          label={t("overview.feedCostMonth", { month: thisMonthName })}
-          value={formatRm(monthCost.thisMonth.costRm, 0)}
+          label={t("overview.feedCostDaily")}
+          value={formatRm(daily.costRm, 0)}
           icon={<CoinsIcon className="size-4" />}
           change={costChange !== null ? { value: costChange, label: t("overview.dailyVs", { month: lastMonthName }), goodWhen: "down" } : null}
-          sub={t("overview.lastMonthCost", { month: lastMonthName, cost: formatRm(monthCost.lastMonth.costRm, 0) })}
+          sub={daily.dayKey ? t("overview.dailyCostSub", { date: fmt.dayKey(daily.dayKey), n: daily.ponds }) : undefined}
+        />
+        <StatCard
+          label={t("overview.feedCostOverall")}
+          value={formatRm(totals.costRm, 0)}
+          icon={<CoinsIcon className="size-4" />}
+          sub={t("overview.overallCostSub", { cost: formatRm(monthCost.thisMonth.costRm, 0), month: thisMonthName })}
         />
         <StatCard
           label={t("overview.feedUsedMonth", { month: thisMonthName })}
