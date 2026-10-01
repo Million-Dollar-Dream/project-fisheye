@@ -29,7 +29,7 @@ import { cx } from "../components/ui";
 
 
 // The first TOP_ITEMS sit above the pond list; the rest are operations.
-const TOP_ITEMS = 3;
+const TOP_ITEMS = 4;
 const NAV: { href: string; label: MessageKey; icon: typeof GridIcon }[] = [
   { href: "/", label: "nav.overview", icon: GridIcon },
   { href: "/farms", label: "nav.farmMap", icon: MapIcon },
@@ -59,6 +59,18 @@ export default function OwnerNav({
 }) {
   const pathname = usePathname();
   const { t } = useI18n();
+  // The sidebar lists farms, each opening its own map and cycles; only the
+  // farm being viewed shows its ponds.
+  const farms = new Map<number, { id: number; name: string; ponds: typeof ponds }>();
+  for (const pond of ponds) {
+    if (!pond.farm) continue;
+    const farm = farms.get(pond.farm.id) ?? { ...pond.farm, ponds: [] };
+    farm.ponds.push(pond);
+    farms.set(pond.farm.id, farm);
+  }
+  const unassigned = ponds.filter((pond) => !pond.farm);
+  const farmOpen = (farm: { id: number; ponds: typeof ponds }) =>
+    isActive(pathname, `/farms/${farm.id}`) || farm.ponds.some((pond) => isActive(pathname, `/ponds/${pond.id}`));
   const pondItem = (pond: (typeof ponds)[number]) => (
     <NavItem
       key={pond.id}
@@ -87,18 +99,50 @@ export default function OwnerNav({
     <>
       <nav className="flex-1 overflow-y-auto px-3 pb-4" aria-label={t("nav.main")}>
         <ul className="space-y-0.5">
-          {NAV.slice(0, TOP_ITEMS).map((item) => (
-            <NavItem key={item.href} {...item} label={t(item.label)} active={isActive(pathname, item.href)} />
-          ))}
+          {NAV.slice(0, TOP_ITEMS).flatMap((item) => [
+            <NavItem key={item.href} {...item} label={t(item.label)} active={isActive(pathname, item.href)} />,
+            // The red alert sits right under Overview.
+            ...(item.href === "/" && readyPonds.length > 0
+              ? [
+                  <li key="ready">
+                    <Link
+                      href="/harvests"
+                      className="mt-1 mb-1 flex h-9 items-center gap-3 rounded-md bg-red-600 px-3 text-sm font-semibold text-white hover:bg-red-500"
+                    >
+                      <HarvestIcon className="size-4.5" />
+                      <span className="flex-1 truncate">{t("overview.readyTitleCount", { n: readyPonds.length })}</span>
+                    </Link>
+                  </li>,
+                ]
+              : []),
+          ])}
         </ul>
 
         <p className="mt-6 mb-2 px-3 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">
-          {t("nav.ponds")}
+          {t("nav.farms")}
         </p>
-        <ul className="space-y-0.5">{ponds.map(pondItem)}</ul>
+        <ul className="space-y-0.5">
+          {[...farms.values()].map((farm) => (
+            <li key={farm.id}>
+              <ul>
+                <NavItem
+                  href={`/farms/${farm.id}`}
+                  label={farm.name}
+                  icon={MapIcon}
+                  count={farm.ponds.length}
+                  active={isActive(pathname, `/farms/${farm.id}`)}
+                />
+              </ul>
+              {farmOpen(farm) && (
+                <ul className="my-1 ml-5 space-y-0.5 border-l border-white/10 pl-2">{farm.ponds.map(pondItem)}</ul>
+              )}
+            </li>
+          ))}
+          {unassigned.map(pondItem)}
+        </ul>
 
         <p className="mt-6 mb-2 px-3 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">
-          {t("nav.operations")}
+          {t("nav.more")}
         </p>
         <ul className="space-y-0.5">
           {NAV.slice(TOP_ITEMS).map((item) => (

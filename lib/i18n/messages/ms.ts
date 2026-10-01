@@ -163,6 +163,7 @@ export const ms: Messages = {
   "nav.settings": "Tetapan",
   "nav.ponds": "Kolam",
   "nav.operations": "Operasi",
+  "nav.more": "Lagi",
   "nav.farmOwner": "Pemilik ladang",
   "nav.ownerWorkspace": "Ruang kerja pemilik",
   "nav.switchRole": "Tukar peranan",

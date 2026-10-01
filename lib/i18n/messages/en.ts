@@ -161,6 +161,7 @@ export const en = {
   "nav.settings": "Settings",
   "nav.ponds": "Ponds",
   "nav.operations": "Operations",
+  "nav.more": "More",
   "nav.farmOwner": "Farm owner",
   "nav.ownerWorkspace": "Owner workspace",
   "nav.switchRole": "Switch role",

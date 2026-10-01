@@ -163,6 +163,7 @@ export const zh: Messages = {
   "nav.settings": "设置",
   "nav.ponds": "鱼塘",
   "nav.operations": "运营",
+  "nav.more": "更多",
   "nav.farmOwner": "场主",
   "nav.ownerWorkspace": "场主工作区",
   "nav.switchRole": "切换身份",
