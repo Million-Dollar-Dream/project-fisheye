@@ -174,6 +174,8 @@ export const zh: Messages = {
   "nav.language": "语言",
   "nav.sections": "分区",
   "nav.breadcrumb": "导航路径",
+  "nav.openMenu": "打开菜单",
+  "nav.closeMenu": "关闭菜单",
 
   // Health and harvest readiness
   "health.level.good": "健康",

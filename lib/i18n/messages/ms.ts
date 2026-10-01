@@ -174,6 +174,8 @@ export const ms: Messages = {
   "nav.language": "Bahasa",
   "nav.sections": "Bahagian",
   "nav.breadcrumb": "Laluan navigasi",
+  "nav.openMenu": "Buka menu",
+  "nav.closeMenu": "Tutup menu",
 
   // Health and harvest readiness
   "health.level.good": "Sihat",
