@@ -172,6 +172,8 @@ export const en = {
   "nav.language": "Language",
   "nav.sections": "Sections",
   "nav.breadcrumb": "Breadcrumb",
+  "nav.openMenu": "Open menu",
+  "nav.closeMenu": "Close menu",
 
   // Health and harvest readiness
   "health.level.good": "Healthy",
