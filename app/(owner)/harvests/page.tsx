@@ -10,6 +10,7 @@ import { FcrValue } from "@/app/components/cycle";
 import { GradeMixBar, gradeColor } from "@/app/components/harvest";
 import { BoxIcon, CalendarIcon, ChartIcon, FishIcon, HarvestIcon, ScaleIcon } from "@/app/components/icons";
 import { Badge, Card, CardHeader, EmptyState, Legend, PageHeader, StatCard, cx } from "@/app/components/ui";
+import PondPicker from "./PondPicker";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 const MONTHS_SHOWN = 12;
+// Above this many ponds the filter is a searchable picker instead of chips.
+const MAX_POND_CHIPS = 12;
 
 export default async function HarvestsPage({ searchParams }: PageProps<"/harvests">) {
   const today = todayKey();
@@ -80,30 +83,43 @@ export default async function HarvestsPage({ searchParams }: PageProps<"/harvest
         description={t("harvests.description")}
       />
 
-      <nav aria-label={t("harvests.filterPond")} className="-mx-4 mb-6 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <ul className="flex min-w-max gap-1.5">
-          {[{ id: null as number | null, name: t("overview.all") }, ...ponds].map((pond) => {
-            const active = pond.id === pondFilter;
-            const count = pond.id === null ? allHarvests.length : allHarvests.filter((harvest) => harvest.pondId === pond.id).length;
-            return (
-              <li key={pond.id ?? "all"}>
-                <Link
-                  href={pond.id === null ? "/harvests" : `/harvests?pond=${pond.id}`}
-                  scroll={false}
-                  aria-current={active ? "true" : undefined}
-                  className={cx(
-                    "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium",
-                    active ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface text-ink-2 hover:border-line-strong",
-                  )}
-                >
-                  {pond.name}
-                  <span className="tabular-nums text-ink-3">{count}</span>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
+      {ponds.length > MAX_POND_CHIPS ? (
+        <PondPicker
+          ponds={ponds.map((pond) => ({
+            id: pond.id,
+            name: pond.name,
+            farm: pond.farm?.name ?? null,
+            count: allHarvests.filter((harvest) => harvest.pondId === pond.id).length,
+          }))}
+          total={allHarvests.length}
+          selected={pondFilter}
+        />
+      ) : (
+        <nav aria-label={t("harvests.filterPond")} className="-mx-4 mb-6 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+          <ul className="flex min-w-max gap-1.5">
+            {[{ id: null as number | null, name: t("overview.all") }, ...ponds].map((pond) => {
+              const active = pond.id === pondFilter;
+              const count = pond.id === null ? allHarvests.length : allHarvests.filter((harvest) => harvest.pondId === pond.id).length;
+              return (
+                <li key={pond.id ?? "all"}>
+                  <Link
+                    href={pond.id === null ? "/harvests" : `/harvests?pond=${pond.id}`}
+                    scroll={false}
+                    aria-current={active ? "true" : undefined}
+                    className={cx(
+                      "inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium",
+                      active ? "border-brand bg-brand-soft text-brand" : "border-line bg-surface text-ink-2 hover:border-line-strong",
+                    )}
+                  >
+                    {pond.name}
+                    <span className="tabular-nums text-ink-3">{count}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      )}
 
       <section aria-label={t("overview.keyFigures")} className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard

@@ -69,12 +69,14 @@ export function CardHeader({
   className?: string;
 }) {
   return (
-    <div className={cx("flex items-start justify-between gap-4 px-5 pt-5", className)}>
-      <div className="min-w-0">
+    // Wraps so a wide action (e.g. a long legend) drops below the title on
+    // narrow screens instead of squeezing it.
+    <div className={cx("flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-5 pt-5", className)}>
+      <div className="min-w-0 flex-[1_1_14rem]">
         <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
         {description && <p className="mt-0.5 text-pretty text-[13px] text-ink-3">{description}</p>}
       </div>
-      {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
+      {action && <div className="flex max-w-full min-w-0 items-center gap-2">{action}</div>}
     </div>
   );
 }
