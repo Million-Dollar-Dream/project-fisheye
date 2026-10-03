@@ -144,6 +144,25 @@ export function Badge({
   );
 }
 
+export type StatChange = { value: number; label: string; goodWhen: "up" | "down" };
+
+function ChangeLine({ change, sub }: { change?: StatChange | null; sub?: ReactNode }) {
+  const isUp = change ? change.value >= 0 : false;
+  const isGood = change ? (change.goodWhen === "up" ? isUp : !isUp) : false;
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+      {change && Number.isFinite(change.value) && (
+        <span className={cx("inline-flex items-center gap-0.5 font-medium", isGood ? "text-positive" : "text-danger")}>
+          {isUp ? <TrendUpIcon className="size-3.5" /> : <TrendDownIcon className="size-3.5" />}
+          {`${isUp ? "+" : ""}${(change.value * 100).toFixed(1)}%`}
+        </span>
+      )}
+      {change && <span>{change.label}</span>}
+      {sub && <span>{sub}</span>}
+    </div>
+  );
+}
+
 export function StatCard({
   label,
   value,
@@ -158,12 +177,9 @@ export function StatCard({
   sub?: ReactNode;
   /** Accepted for older call sites; stat cards no longer show an icon. */
   icon?: ReactNode;
-  change?: { value: number; label: string; goodWhen: "up" | "down" } | null;
+  change?: StatChange | null;
   emphasis?: boolean;
 }) {
-  const isUp = change ? change.value >= 0 : false;
-  const isGood = change ? (change.goodWhen === "up" ? isUp : !isUp) : false;
-
   return (
     <Card as="div" className={cx("relative overflow-hidden p-5", emphasis && "border-t-[3px] border-t-brand")}>
       <p className="text-[13px] font-medium text-ink-2">{label}</p>
@@ -171,19 +187,38 @@ export function StatCard({
         <CountUp value={value} />
         {unit && <span className="ml-1 text-sm font-medium text-ink-3">{unit}</span>}
       </p>
-      <div className="mt-2.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
-        {change && Number.isFinite(change.value) && (
-          <span className={cx("inline-flex items-center gap-0.5 font-medium", isGood ? "text-positive" : "text-danger")}>
-            {isUp ? <TrendUpIcon className="size-3.5" /> : <TrendDownIcon className="size-3.5" />}
-            {`${isUp ? "+" : ""}${(change.value * 100).toFixed(1)}%`}
-          </span>
-        )}
-        {change && <span>{change.label}</span>}
-        {sub && <span>{sub}</span>}
+      <ChangeLine change={change} sub={sub} />
+    </Card>
+  );
+}
+
+// One stat card split down the middle into two related figures.
+export function SplitStatCard({
+  label,
+  halves,
+}: {
+  label: string;
+  halves: [SplitHalf, SplitHalf];
+}) {
+  return (
+    <Card as="div" className="relative overflow-hidden p-5">
+      <p className="text-[13px] font-medium text-ink-2">{label}</p>
+      <div className="mt-2.5 grid grid-cols-2 divide-x divide-line">
+        {halves.map((half, index) => (
+          <div key={index} className={cx("min-w-0", index === 0 ? "pr-4" : "pl-4")}>
+            <p className="truncate text-xs text-ink-3">{half.label}</p>
+            <p className="mt-1.5 text-[22px] leading-none font-semibold tracking-tight tabular-nums text-ink">
+              <CountUp value={half.value} />
+            </p>
+            <ChangeLine change={half.change} sub={half.sub} />
+          </div>
+        ))}
       </div>
     </Card>
   );
 }
+
+type SplitHalf = { label: string; value: string; sub?: ReactNode; change?: StatChange | null };
 
 export function EmptyState({
   icon,
