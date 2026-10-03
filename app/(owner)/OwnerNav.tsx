@@ -9,9 +9,11 @@ import type { MessageKey } from "@/lib/i18n/messages/en";
 import { useI18n } from "../components/I18nProvider";
 import LanguageSwitcher from "../components/LanguageSwitcher";
 import ScenarioSwitch from "../components/ScenarioSwitch";
+import { MANY_PONDS } from "@/lib/farmMap";
 import type { Scenario } from "@/lib/scenario";
 import {
   BrandMark,
+  ChevronDownIcon,
   ClipboardIcon,
   GridIcon,
   HarvestIcon,
@@ -69,6 +71,22 @@ export default function OwnerNav({
     />
   );
 
+  // With many ponds the list is grouped by farm. Each farm opens its own map,
+  // and its ponds fold out under it; the farm being viewed starts open.
+  const grouped = ponds.length > MANY_PONDS;
+  const farms = new Map<number, { id: number; name: string; ponds: typeof ponds }>();
+  for (const pond of ponds) {
+    if (!pond.farm) continue;
+    const farm = farms.get(pond.farm.id) ?? { ...pond.farm, ponds: [] };
+    farm.ponds.push(pond);
+    farms.set(pond.farm.id, farm);
+  }
+  const unassigned = ponds.filter((pond) => !pond.farm);
+  const viewingFarm = (farm: { id: number; ponds: typeof ponds }) =>
+    isActive(pathname, `/farms/${farm.id}`) || farm.ponds.some((pond) => isActive(pathname, `/ponds/${pond.id}`));
+  const [toggled, setToggled] = useState<Record<number, boolean>>({});
+  const farmOpen = (farm: { id: number; ponds: typeof ponds }) => toggled[farm.id] ?? viewingFarm(farm);
+
   const [open, setOpen] = useState(false);
   // Close the phone drawer after navigating.
   const [lastPath, setLastPath] = useState(pathname);
@@ -93,9 +111,45 @@ export default function OwnerNav({
         </ul>
 
         <p className="mt-6 mb-2 px-3 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">
-          {t("nav.ponds")}
+          {grouped ? t("nav.farms") : t("nav.ponds")}
         </p>
-        <ul className="space-y-0.5">{ponds.map(pondItem)}</ul>
+        {grouped ? (
+          <ul className="space-y-0.5">
+            {[...farms.values()].map((farm) => {
+              const expanded = farmOpen(farm);
+              return (
+                <li key={farm.id}>
+                  <div className="flex items-center gap-0.5">
+                    <ul className="min-w-0 flex-1">
+                      <NavItem
+                        href={`/farms/${farm.id}`}
+                        label={farm.name}
+                        icon={MapIcon}
+                        count={farm.ponds.length}
+                        active={isActive(pathname, `/farms/${farm.id}`)}
+                      />
+                    </ul>
+                    <button
+                      type="button"
+                      onClick={() => setToggled((state) => ({ ...state, [farm.id]: !expanded }))}
+                      aria-expanded={expanded}
+                      aria-label={t("nav.farmPonds", { count: farm.ponds.length })}
+                      className="flex size-9 shrink-0 items-center justify-center rounded-md text-sidebar-muted hover:bg-white/5 hover:text-white"
+                    >
+                      <ChevronDownIcon className={cx("size-4 transition-transform", expanded && "rotate-180")} />
+                    </button>
+                  </div>
+                  {expanded && (
+                    <ul className="my-1 ml-5 space-y-0.5 border-l border-white/10 pl-2">{farm.ponds.map(pondItem)}</ul>
+                  )}
+                </li>
+              );
+            })}
+            {unassigned.map(pondItem)}
+          </ul>
+        ) : (
+          <ul className="space-y-0.5">{ponds.map(pondItem)}</ul>
+        )}
 
         <p className="mt-6 mb-2 px-3 text-[11px] font-semibold tracking-wider text-sidebar-muted uppercase">
           {t("nav.operations")}
