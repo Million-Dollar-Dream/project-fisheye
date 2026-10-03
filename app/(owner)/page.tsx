@@ -27,7 +27,6 @@ import {
   ChartIcon,
   ChevronRightIcon,
   ClipboardIcon,
-  CoinsIcon,
   FeedIcon,
   HarvestIcon,
   InfoIcon,
@@ -36,7 +35,7 @@ import {
   SkullIcon,
   UploadIcon,
 } from "../components/icons";
-import { Badge, Card, CardHeader, EmptyState, Legend, PageHeader, StatCard, buttonClass, cx } from "../components/ui";
+import { Badge, Card, CardHeader, EmptyState, Legend, PageHeader, SplitStatCard, StatCard, buttonClass, cx } from "../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -213,7 +212,7 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
         }
       />
 
-      <section aria-label={t("overview.keyFigures")} className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+      <section aria-label={t("overview.keyFigures")} className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           emphasis
           label={t("overview.standingStock")}
@@ -222,18 +221,20 @@ export default async function OverviewPage({ searchParams }: PageProps<"/">) {
           icon={<ScaleIcon className="size-4" />}
           sub={t("overview.standingStockSub", { boxes: estimateBoxes(totals.harvestKg, boxKg), n: withData.length })}
         />
-        <StatCard
-          label={t("overview.feedCostDaily")}
-          value={formatRm(daily.costRm, 0)}
-          icon={<CoinsIcon className="size-4" />}
-          change={costChange !== null ? { value: costChange, label: t("overview.dailyVs", { month: lastMonthName }), goodWhen: "down" } : null}
-          sub={daily.dayKey ? t("overview.dailyCostSub", { date: fmt.dayKey(daily.dayKey), n: daily.ponds }) : undefined}
-        />
-        <StatCard
-          label={t("overview.feedCostOverall")}
-          value={formatRm(totals.costRm, 0)}
-          icon={<CoinsIcon className="size-4" />}
-          sub={t("overview.overallCostSub", { cost: formatRm(monthCost.thisMonth.costRm, 0), month: thisMonthName })}
+        <SplitStatCard
+          label={t("overview.feedCost")}
+          halves={[
+            {
+              label: daily.dayKey ? fmt.dayKey(daily.dayKey) : t("overview.costThatDay"),
+              value: formatRm(daily.costRm, 0),
+              sub: daily.dayKey ? t("overview.pondsFed", { n: daily.ponds }) : undefined,
+            },
+            {
+              label: thisMonthName,
+              value: formatRm(monthCost.thisMonth.costRm, 0),
+              change: costChange !== null ? { value: costChange, label: t("overview.dailyVs", { month: lastMonthName }), goodWhen: "down" } : null,
+            },
+          ]}
         />
         <StatCard
           label={t("overview.feedUsedMonth", { month: thisMonthName })}
